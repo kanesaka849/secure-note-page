@@ -1,19 +1,21 @@
 """
 ci_fetch_and_judge.py
 GitHub Actions専用スクリプト。以下を実行する：
-  1) IMAP経由でkanesaka@activia.co.jp / trial@agniyoga.jp / school@agniyoga.jp を取得
+  1) IMAP経由でkanesaka@activia.co.jp / trial@agniyoga.jp / school@agniyoga.jp / kanesaka@agniyoga.jp を取得
   2) Gmail API経由でkanesaka.agni@gmail.com / agniyoga.ad@gmail.comの未読メールを取得（フィルタなし）
-  3) kanesaka@activia.co.jp / kanesaka.agni@gmail.com / agniyoga.ad@gmail.com の3アカウント全てを
-     「①要対応 ②お知らせ程度 ③宛先不明 ④スパムか不明」の4分類＋非表示（明らかな広告・スパム）で統一判定する。
+  2b) POP3経由でinfo@zipyoga.jp（ZIPシステム問い合わせ先）を取得（school@agniyoga.jpとは無関係の別アカウント）
+  3) kanesaka@activia.co.jp / kanesaka.agni@gmail.com / agniyoga.ad@gmail.com / info@zipyoga.jp /
+     kanesaka@agniyoga.jp の5アカウント全てを「①要対応 ②お知らせ程度 ③宛先不明 ④スパムか不明」の
+     4分類＋非表示（明らかな広告・スパム）で統一判定する。
      方式：sender_rules.json（アカウントごとの送信元→カテゴリ辞書）で確定するものはAI不要。
      未確定の送信元だけAnthropic APIに判定させ、結果を学習してルールに追記する。
      判断に迷う場合は「表示する」側（unclear）に倒す（見落とし防止）。
-  4) mail_unified.json（3アカウント統合・表示用） / mail_trial_agniyoga.json / mail_school_agniyoga.json を
+  4) mail_unified.json（4アカウント統合・表示用） / mail_trial_agniyoga.json / mail_school_agniyoga.json を
      ci_input/ に書き出す（このディレクトリはコミットしない＝平文メール内容を公開リポジトリに残さない）
   5) sender_rules.json（送信元識別子とカテゴリのみ・メール内容は含まない）と
      api_usage_log.json（トークン数・概算コストのみ）はコミット対象。
 """
-import imaplib, ssl, email, json, os, sys, re, base64, html, urllib.request, urllib.parse
+import imaplib, poplib, ssl, email, json, os, sys, re, base64, html, urllib.request, urllib.parse
 from email.header import decode_header
 from datetime import datetime, timezone
 
@@ -31,6 +33,17 @@ IMAP_ACCOUNTS = {
     'activia': {'user': os.environ['MAIL_KANESAKA_ACTIVIA'], 'pass': os.environ['MAIL_KANESAKA_ACTIVIA_PASS']},
     'trial':   {'user': os.environ['MAIL_TRIAL_AGNIYOGA'],   'pass': os.environ['MAIL_TRIAL_AGNIYOGA_PASS']},
     'school':  {'user': os.environ['MAIL_SCHOOL_AGNIYOGA'],  'pass': os.environ['MAIL_SCHOOL_AGNIYOGA_PASS']},
+    'kanesaka_agniyoga': {'user': os.environ.get('MAIL_KANESAKA_AGNIYOGA', ''),
+                          'pass': os.environ.get('MAIL_KANESAKA_AGNIYOGA_PASS', '')},
+}
+
+# info@zipyoga.jp（ZIPシステム問い合わせ先）— GMO独自ドメインメール、POP3で取得。
+# school@agniyoga.jpとは無関係の別アカウント。KEEP_ON_SERVER前提（DELEは送らない＝サーバー上のメールは消さない）。
+ZIPYOGA_POP_SERVER = os.environ.get('ZIPYOGA_POP_SERVER', 'pop17.gmoserver.jp')
+ZIPYOGA_POP_PORT = 995
+POP3_ACCOUNTS = {
+    'zipyoga_info': {'user': os.environ.get('ZIPYOGA_INFO_USER', 'info@zipyoga.jp'),
+                      'pass': os.environ.get('ZIPYOGA_INFO_PASS', '')},
 }
 
 GMAIL_CLIENT_ID     = os.environ.get('GMAIL_CLIENT_ID', '')
@@ -58,6 +71,8 @@ ACCOUNT_DISPLAY_TO = {
     'kanesaka_activia': 'kanesaka@activia.co.jp',
     'kanesaka_agni': 'kanesaka.agni@gmail.com',
     'agniyoga_ad': 'agniyoga.ad@gmail.com',
+    'zipyoga': 'info@zipyoga.jp',
+    'kanesaka_agniyoga': 'kanesaka@agniyoga.jp',
 }
 
 CATEGORY_ICON = {
@@ -135,6 +150,38 @@ def fetch_imap_account(user, password, n):
                 'body': get_body(msg),
             })
         imap.logout()
+    except Exception as e:
+        print(f'[{user}] ERROR: {e}')
+    return results
+
+
+def fetch_pop3_account(user, password, server, port, n):
+    """POP3でメールを取得する。RETRのみでDELEは送らない＝サーバー上のメールは削除しない。"""
+    results = []
+    if not password:
+        print(f'[{user}] パスワード未設定のためスキップ')
+        return results
+    try:
+        pop = poplib.POP3_SSL(server, port)
+        pop.user(user)
+        pop.pass_(password)
+        count, _ = pop.stat()
+        _, msg_list, _ = pop.list()
+        ids = [line.split()[0] for line in msg_list]
+        print(f'[{user}] {count}件中、最新{n}件取得')
+        for mid in ids[-n:][::-1]:
+            _, lines, _ = pop.retr(mid)
+            msg = email.message_from_bytes(b'\n'.join(lines))
+            from_str = dec(msg.get('From', ''))
+            results.append({
+                'id': mid.decode() if isinstance(mid, bytes) else str(mid),
+                'subject': dec(msg.get('Subject', '')),
+                'from': from_str,
+                'domain': _extract_domain(from_str),
+                'date': msg.get('Date', ''),
+                'body': get_body(msg),
+            })
+        pop.quit()
     except Exception as e:
         print(f'[{user}] ERROR: {e}')
     return results
@@ -346,6 +393,8 @@ DEFAULT_SENDER_RULES = {
         'mail.7cs-card.co.jp': 'hide',
     },
     'agniyoga_ad': {},
+    'zipyoga': {},
+    'kanesaka_agniyoga': {},
 }
 
 
@@ -354,7 +403,7 @@ def load_sender_rules():
         try:
             with open(RULES_FILE, encoding='utf-8') as f:
                 rules = json.load(f)
-            for acct in ('kanesaka_activia', 'kanesaka_agni', 'agniyoga_ad'):
+            for acct in ('kanesaka_activia', 'kanesaka_agni', 'agniyoga_ad', 'zipyoga', 'kanesaka_agniyoga'):
                 rules.setdefault(acct, {})
             # 旧スキーマ（always_show/always_hideのフラットリスト）の残骸を除去
             rules.pop('always_show', None)
@@ -454,7 +503,7 @@ def judge_account(account_key, account_label, mails, rules):
 
 
 def main():
-    # 1) IMAP: trial/school（KPI集計専用・分類対象外）
+    # 1) IMAP: trial（KPI集計専用・分類対象外）/ school（KPI集計に加えて統合AI判定にも使用）
     trial_mails   = fetch_imap_account(IMAP_ACCOUNTS['trial']['user'],   IMAP_ACCOUNTS['trial']['pass'],   FETCH_N)
     school_mails  = fetch_imap_account(IMAP_ACCOUNTS['school']['user'],  IMAP_ACCOUNTS['school']['pass'],  FETCH_N)
     with open(os.path.join(INPUT_DIR, 'mail_trial_agniyoga.json'), 'w', encoding='utf-8') as f:
@@ -462,8 +511,10 @@ def main():
     with open(os.path.join(INPUT_DIR, 'mail_school_agniyoga.json'), 'w', encoding='utf-8') as f:
         json.dump(school_mails, f, ensure_ascii=False, indent=2)
 
-    # 2) 3アカウントを取得
+    # 2) 5アカウントを取得
     activia_mails = fetch_imap_account(IMAP_ACCOUNTS['activia']['user'], IMAP_ACCOUNTS['activia']['pass'], FETCH_N)
+    kanesaka_agniyoga_mails = fetch_imap_account(
+        IMAP_ACCOUNTS['kanesaka_agniyoga']['user'], IMAP_ACCOUNTS['kanesaka_agniyoga']['pass'], FETCH_N)
     try:
         kanesaka_agni_mails = fetch_gmail_unread(
             GMAIL_ACCOUNTS['kanesaka_agni']['address'], GMAIL_ACCOUNTS['kanesaka_agni']['refresh_token'])
@@ -477,12 +528,20 @@ def main():
         print(f'agniyoga.ad Gmail取得エラー: {e}')
         agniyoga_ad_mails = []
 
+    # info@zipyoga.jp（ZIPシステム問い合わせ先）自体の受信箱をPOP3で取得。school@agniyoga.jpとは
+    # 無関係の別アカウントで、school側は引き続きKPI集計専用のまま統合判定には含めない。
+    zipyoga_info_mails = fetch_pop3_account(
+        POP3_ACCOUNTS['zipyoga_info']['user'], POP3_ACCOUNTS['zipyoga_info']['pass'],
+        ZIPYOGA_POP_SERVER, ZIPYOGA_POP_PORT, FETCH_N)
+
     # 3) 統合判定
     rules = load_sender_rules()
     unified_mails = []
     unified_mails += judge_account('kanesaka_activia', 'kanesaka@activia.co.jp', activia_mails, rules)
     unified_mails += judge_account('kanesaka_agni', 'kanesaka.agni@gmail.com（個人アカウント）', kanesaka_agni_mails, rules)
     unified_mails += judge_account('agniyoga_ad', 'agniyoga.ad@gmail.com（広告運用アカウント）', agniyoga_ad_mails, rules)
+    unified_mails += judge_account('zipyoga', 'info@zipyoga.jp（ZIPシステム問い合わせ先）', zipyoga_info_mails, rules)
+    unified_mails += judge_account('kanesaka_agniyoga', 'kanesaka@agniyoga.jp', kanesaka_agniyoga_mails, rules)
     save_sender_rules(rules)
 
     with open(os.path.join(INPUT_DIR, 'mail_unified.json'), 'w', encoding='utf-8') as f:

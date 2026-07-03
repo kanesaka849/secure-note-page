@@ -362,6 +362,8 @@ ACCOUNT_LABELS = {
     'kanesaka_activia': ('Activia', 'acct-activia'),
     'kanesaka_agni': ('個人', 'acct-kanesaka-agni'),
     'agniyoga_ad': ('広告用', 'acct-agniyoga-ad'),
+    'zipyoga': ('ZIP問合せ', 'acct-zipyoga'),
+    'kanesaka_agniyoga': ('agniyoga', 'acct-kanesaka-agniyoga'),
 }
 CATEGORY_CLASS = {
     'action': 'mail-urgent',
@@ -558,6 +560,8 @@ DASHBOARD_TEMPLATE = """<!DOCTYPE html>
   .acct-activia { background: #dbeafe; color: #1d4ed8; }
   .acct-kanesaka-agni { background: #dcfce7; color: #15803d; }
   .acct-agniyoga-ad { background: #f3e8ff; color: #7e22ce; }
+  .acct-zipyoga { background: #ffe4e6; color: #be123c; }
+  .acct-kanesaka-agniyoga { background: #fff7ed; color: #c2410c; }
   .mail-detail { display: none; max-height: 260px; overflow-y: auto; font-size: 11px; line-height: 1.7; margin-top: 8px; padding: 8px 10px; border: 1px solid rgba(0,0,0,0.12); border-radius: 6px; background: #f8fafc; color: var(--text); }
   .mail-item.open .mail-detail { display: block; }
   .mail-detail .detail-from { color: var(--sub); margin-bottom: 4px; }
