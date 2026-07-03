@@ -376,7 +376,7 @@ def generate_mail_section(urgent_mails):
         </div>""")
     return '\n'.join(parts)
 
-def generate_kanesaka_gmail_section(mails, id_prefix='gm', default_to='kanesaka.agni@gmail.com', allow_block=False):
+def generate_kanesaka_gmail_section(mails, id_prefix='gm', default_to='kanesaka.agni@gmail.com', block_fn=None):
     if not mails:
         return '<div style="font-size:12px;color:var(--sub);padding:6px 0;">未読なし</div>'
     domain_icons = {
@@ -395,8 +395,8 @@ def generate_kanesaka_gmail_section(mails, id_prefix='gm', default_to='kanesaka.
         date = he(m.get('date', ''))
         full_body = he(m.get('body') or m.get('snippet', ''))
         block_btn = (f'<button class="archive-btn" title="今後この送信元を非表示にする" '
-                     f'onclick="event.stopPropagation();blockSenderDomain(\'{domain}\')">🚫</button>'
-                     if allow_block and domain else '')
+                     f'onclick="event.stopPropagation();{block_fn}(\'{domain}\')">🚫</button>'
+                     if block_fn and domain else '')
         parts.append(f"""        <div class="mail-item mail-info" id="{mid}" data-domain="{domain}">
           <div class="mail-header" onclick="toggleDetail('{mid}')">
             <div class="mail-title">{icon} {subj}</div>
@@ -747,6 +747,48 @@ function renderBlocklistUI(){
   if(wrap)wrap.style.display=list.length?'':'none';
   el.innerHTML=list.map(function(d){return `<div class="routine-item"><div class="routine-name">${_esc(d)}</div><div class="routine-freq"><button class="rt-del-btn" onclick="unblockSenderDomain('${_esc(d)}')" title="また表示する">↩</button></div></div>`;}).join('');
 }
+// kanesaka.agni向けの手動show/hideは、AIが使うsender_rules.json自体を直接書き換える
+// （AIの自動学習と同じ場所に人間の判断も記録し、次回のメール反映にも反映されるようにする）
+const GH_SENDER_RULES='sender_rules.json';
+async function ghGetSenderRules(){try{const r=await fetch(`https://api.github.com/repos/${GH_REPO}/contents/${GH_SENDER_RULES}`,{headers:{'Authorization':`token ${GH_TOKEN}`,'Accept':'application/vnd.github.v3+json'}});if(!r.ok)return{rules:{always_show:[],always_hide:[]},sha:null};const d=await r.json();return{rules:JSON.parse(decodeURIComponent(escape(atob(d.content.replace(/\\n/g,''))))),sha:d.sha};}catch(e){return{rules:{always_show:[],always_hide:[]},sha:null};}}
+async function ghPutSenderRules(rules,sha){try{const b=btoa(unescape(encodeURIComponent(JSON.stringify(rules))));const body={message:'update sender rules (manual)',content:b};if(sha)body.sha=sha;await fetch(`https://api.github.com/repos/${GH_REPO}/contents/${GH_SENDER_RULES}`,{method:'PUT',headers:{'Authorization':`token ${GH_TOKEN}`,'Content-Type':'application/json','Accept':'application/vnd.github.v3+json'},body:JSON.stringify(body)});}catch(e){}}
+function _gkb(){try{return JSON.parse(localStorage.getItem('ks_kanesaka_hidden_v1')||'[]');}catch{return[];}}
+function _skb(list){localStorage.setItem('ks_kanesaka_hidden_v1',JSON.stringify(list));}
+function applyKanesakaBlocklist(){
+  const list=_gkb();
+  document.querySelectorAll('[id^="gm-"]').forEach(function(el){
+    const d=el.getAttribute('data-domain');
+    el.style.display=(d&&list.includes(d))?'none':'';
+  });
+  renderKanesakaBlocklistUI();
+}
+function blockKanesakaSenderDomain(domain){
+  if(!domain)return;
+  if(!confirm(`今後「${domain}」からのメールを非表示にしますか？（次回のメール反映からもAIが自動でhide扱いします）`))return;
+  const local=_gkb();if(!local.includes(domain)){local.push(domain);_skb(local);}
+  applyKanesakaBlocklist();
+  if(GH_TOKEN){ghGetSenderRules().then(function(r){
+    const rules=r.rules;rules.always_show=(rules.always_show||[]).filter(function(d){return d!==domain;});
+    if(!(rules.always_hide||[]).includes(domain)){rules.always_hide=(rules.always_hide||[]).concat([domain]);}
+    ghPutSenderRules(rules,r.sha);
+  });}
+}
+function unblockKanesakaSenderDomain(domain){
+  const local=_gkb().filter(function(d){return d!==domain;});_skb(local);
+  applyKanesakaBlocklist();
+  if(GH_TOKEN){ghGetSenderRules().then(function(r){
+    const rules=r.rules;rules.always_hide=(rules.always_hide||[]).filter(function(d){return d!==domain;});
+    if(!(rules.always_show||[]).includes(domain)){rules.always_show=(rules.always_show||[]).concat([domain]);}
+    ghPutSenderRules(rules,r.sha);
+  });}
+}
+function renderKanesakaBlocklistUI(){
+  const el=document.getElementById('kanesaka-blocklist-list');if(!el)return;
+  const wrap=document.getElementById('kanesaka-blocklist-card');
+  const list=_gkb();
+  if(wrap)wrap.style.display=list.length?'':'none';
+  el.innerHTML=list.map(function(d){return `<div class="routine-item"><div class="routine-name">${_esc(d)}</div><div class="routine-freq"><button class="rt-del-btn" onclick="unblockKanesakaSenderDomain('${_esc(d)}')" title="また表示する">↩</button></div></div>`;}).join('');
+}
 function mergeDone(a,b){const m={};[...a,...b].forEach(function(i){if(!m[i.id]||i.completedAt>m[i.id].completedAt)m[i.id]=i;});return Object.values(m);}
 function fmtDoneTime(ts){
   var d=new Date(ts);
@@ -955,6 +997,10 @@ function toggleDetail(id){const el=document.getElementById(id);if(el)el.classLis
   <div class="card">
 ###KANESAKA_GMAIL###
   </div>
+  <div class="card full" id="kanesaka-blocklist-card" style="padding:12px 16px;display:none;margin-top:8px;">
+    <div class="card-title" style="margin-bottom:6px;">🚫 今後表示しない送信元（kanesaka.agni）</div>
+    <div id="kanesaka-blocklist-list"></div>
+  </div>
 
   <!-- ═══ agniyoga.ad メール（未読・全件） ═══ -->
   <div class="section-head">📨 agniyoga.ad@gmail.com・未読（フィルタなし）<span style="font-size:10px;font-weight:normal;margin-left:8px;color:var(--sub);">###AGNIYOGA_AD_GMAIL_FETCHED###</span></div>
@@ -1110,6 +1156,8 @@ function toggleDetail(id){const el=document.getElementById(id);if(el)el.classLis
   loadApiCost();
   applyBlocklist();
   if(GH_TOKEN){ghGetBlocklist().then(function(r){_sab(r.list);applyBlocklist();});}
+  applyKanesakaBlocklist();
+  if(GH_TOKEN){ghGetSenderRules().then(function(r){_skb(r.rules.always_hide||[]);applyKanesakaBlocklist();});}
   // GitHubと同期して再適用
   if(GH_TOKEN){ghGet().then(function(r){const merged=mergeDone(_gd(),r.list);_sd(merged);applyDoneState(merged);renderCustomAdhoc();const ids=function(l){return l.map(function(i){return i.id;}).sort().join(',');};if(ids(merged)!==ids(r.list))ghPut(merged,r.sha);});}
 })();
@@ -1479,9 +1527,9 @@ except Exception as e:
 
 # 3) Generate dynamic sections
 mail_html        = generate_mail_section(judgment.get('urgent_mails', []))
-gmail_html       = generate_kanesaka_gmail_section(kanesaka_gmail_mails)
+gmail_html       = generate_kanesaka_gmail_section(kanesaka_gmail_mails, block_fn='blockKanesakaSenderDomain')
 agniyoga_ad_gmail_html = generate_kanesaka_gmail_section(
-    agniyoga_ad_gmail_mails, id_prefix='gmad', default_to='agniyoga.ad@gmail.com', allow_block=True)
+    agniyoga_ad_gmail_mails, id_prefix='gmad', default_to='agniyoga.ad@gmail.com', block_fn='blockSenderDomain')
 kpi_html         = generate_kpi_section(
     trials, shiryo_list, setsumeikai_list, n_training,
     kpi_note, today, month
