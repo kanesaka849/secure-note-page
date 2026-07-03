@@ -139,8 +139,12 @@ def call_anthropic_judge(mails):
         },
         method='POST',
     )
-    with urllib.request.urlopen(req) as r:
-        result = json.loads(r.read())
+    try:
+        with urllib.request.urlopen(req) as r:
+            result = json.loads(r.read())
+    except urllib.error.HTTPError as e:
+        print(f'Anthropic API error {e.code}: {e.read().decode("utf-8", errors="replace")}')
+        raise
 
     text = ''.join(block.get('text', '') for block in result.get('content', []) if block.get('type') == 'text')
     usage = result.get('usage', {})
