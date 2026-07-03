@@ -280,9 +280,13 @@ def call_anthropic_judge_unified(account_label, mails):
 
 判断に迷う場合はunclearを選んでください（見落としより誤表示の方が害が少ないため）。
 
+さらに、正規の通知を装ったフィッシング詐欺の疑いがある場合（支払い情報の更新を急かす・
+リンククリックを煽る・差出人アドレスが不自然、等）は"phishing_suspected": trueも付けてください
+（この場合カテゴリはhideにせず、必ずaction等のまま警告表示に回します）。
+
 以下のJSON配列だけを出力してください（説明文・コードブロック記法は不要、JSON配列そのもの）:
 [
-  {{"index": <元のメールの[i]番号>, "category": "action"または"info"または"unclear"または"maybe_spam"または"hide", "icon": "絵文字1つ", "title": "件名を要約した短いタイトル（30字程度）", "sub": "内容の要約（60字程度）"}}
+  {{"index": <元のメールの[i]番号>, "category": "action"または"info"または"unclear"または"maybe_spam"または"hide", "phishing_suspected": trueまたはfalse, "icon": "絵文字1つ", "title": "件名を要約した短いタイトル（30字程度）", "sub": "内容の要約（60字程度）"}}
 ]
 
 対象メール一覧：
@@ -292,29 +296,31 @@ def call_anthropic_judge_unified(account_label, mails):
 
 
 def parse_unified_judge_output(text, mails):
-    """戻り値: [(mail, category, icon, title, sub), ...]。パース失敗時は安全側に倒してunclearとする。"""
+    """戻り値: [(mail, category, icon, title, sub, phishing_suspected), ...]。
+    パース失敗時は安全側に倒してunclearとする。"""
     m = re.search(r'\[.*\]', text, re.DOTALL)
     if not m:
         print('⚠️ AI応答からJSON配列を抽出できませんでした。安全側に倒して全件unclearとします。')
-        return [(mail, 'unclear', '❓', mail['subject'][:30], '') for mail in mails]
+        return [(mail, 'unclear', '❓', mail['subject'][:30], '', False) for mail in mails]
     try:
         items = json.loads(m.group(0))
     except Exception as e:
         print(f'⚠️ JSON parse失敗: {e}。安全側に倒して全件unclearとします。')
-        return [(mail, 'unclear', '❓', mail['subject'][:30], '') for mail in mails]
+        return [(mail, 'unclear', '❓', mail['subject'][:30], '', False) for mail in mails]
 
     by_index = {it.get('index'): it for it in items if it.get('index') is not None}
     results = []
     for i, mail in enumerate(mails):
         it = by_index.get(i)
         if it is None:
-            results.append((mail, 'unclear', '❓', mail['subject'][:30], ''))
+            results.append((mail, 'unclear', '❓', mail['subject'][:30], '', False))
             continue
         category = it.get('category', 'unclear')
         if category not in ('action', 'info', 'unclear', 'maybe_spam', 'hide'):
             category = 'unclear'
         results.append((mail, category, it.get('icon', CATEGORY_ICON.get(category, '📧')),
-                         it.get('title', mail['subject'][:30]), it.get('sub', '')))
+                         it.get('title', mail['subject'][:30]), it.get('sub', ''),
+                         bool(it.get('phishing_suspected', False))))
     return results
 
 
@@ -350,6 +356,9 @@ def load_sender_rules():
                 rules = json.load(f)
             for acct in ('kanesaka_activia', 'kanesaka_agni', 'agniyoga_ad'):
                 rules.setdefault(acct, {})
+            # 旧スキーマ（always_show/always_hideのフラットリスト）の残骸を除去
+            rules.pop('always_show', None)
+            rules.pop('always_hide', None)
             return rules
         except Exception:
             pass
@@ -362,7 +371,8 @@ def save_sender_rules(rules):
 
 
 def apply_sender_rules(mails, account_rules):
-    """(mail, category)確定済みリストと、AI判定が必要な未確定リストに振り分ける。"""
+    """(mail, category)確定済みリストと、AI判定が必要な未確定リストに振り分ける。
+    ルールで確定した送信元はphishing_suspectedを再判定しない（既知の送信元のため）。"""
     decided = []
     undecided = []
     for m in mails:
@@ -370,7 +380,7 @@ def apply_sender_rules(mails, account_rules):
         domain = m.get('domain', '')
         category = account_rules.get(addr) or account_rules.get(domain)
         if category:
-            decided.append((m, category, CATEGORY_ICON.get(category, '📧'), m['subject'][:30], ''))
+            decided.append((m, category, CATEGORY_ICON.get(category, '📧'), m['subject'][:30], '', False))
         else:
             undecided.append(m)
     return decided, undecided
@@ -416,17 +426,19 @@ def judge_account(account_key, account_label, mails, rules):
         text, usage = call_anthropic_judge_unified(account_label, undecided)
         ai_results = parse_unified_judge_output(text, undecided)
         log_cost(usage)
-        for mail, category, icon, title, sub in ai_results:
-            decided.append((mail, category, icon, title, sub))
+        for mail, category, icon, title, sub, phishing in ai_results:
+            decided.append((mail, category, icon, title, sub, phishing))
             addr = _sender_address(mail['from'])
             if addr not in account_rules:
                 account_rules[addr] = category
 
     unified = []
-    for mail, category, icon, title, sub in decided:
+    for mail, category, icon, title, sub, phishing in decided:
         if category == 'hide':
             continue
         mid = f'm-{account_key}-' + re.sub(r'[^a-z0-9]', '', mail['id'])[:24]
+        if phishing:
+            title = '⚠️【フィッシング注意】' + title
         unified.append({
             'id': mid,
             'account': account_key,
