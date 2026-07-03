@@ -19,5 +19,19 @@
     "input_tokens": 901,
     "output_tokens": 102,
     "estimated_cost_usd": 0.00141
+  },
+  {
+    "timestamp": "2026-07-03T21:11:17.955667+00:00",
+    "model": "claude-haiku-4-5-20251001",
+    "input_tokens": 20807,
+    "output_tokens": 1381,
+    "estimated_cost_usd": 0.02771
+  },
+  {
+    "timestamp": "2026-07-03T21:11:36.624113+00:00",
+    "model": "claude-haiku-4-5-20251001",
+    "input_tokens": 598,
+    "output_tokens": 63,
+    "estimated_cost_usd": 0.00091
   }
 ]
