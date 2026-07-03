@@ -39,6 +39,7 @@ jobs:
           GMAIL_CLIENT_ID: ${{ secrets.GMAIL_CLIENT_ID }}
           GMAIL_CLIENT_SECRET: ${{ secrets.GMAIL_CLIENT_SECRET }}
           KANESAKA_GMAIL_REFRESH_TOKEN: ${{ secrets.KANESAKA_GMAIL_REFRESH_TOKEN }}
+          AGNIYOGA_AD_GMAIL_REFRESH_TOKEN: ${{ secrets.AGNIYOGA_AD_GMAIL_REFRESH_TOKEN }}
         run: python .github/scripts/rebuild_all.py
 
       - name: Commit & push (only built output, never ci_input/ raw mail)

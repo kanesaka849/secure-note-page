@@ -1,6 +1,7 @@
 """
 check_kanesaka_gmail.py
-kanesaka.agni@gmail.com の未読重要メールを取得 → mail_kanesaka_gmail.json に保存
+kanesaka.agni@gmail.com（重要ドメインのみ）と agniyoga.ad@gmail.com（フィルタなし・全件）の
+未読メールを取得 → mail_kanesaka_gmail.json / mail_agniyoga_ad_gmail.json に保存
 Task Scheduler から10分ごとに呼び出す。
 """
 import sys, json, os, re, base64, html
@@ -14,7 +15,8 @@ if CI_MODE:
     # GitHub Actions: 認証情報はSecrets経由の環境変数から直接取得（keystore不使用）
     CLIENT_ID     = os.environ['GMAIL_CLIENT_ID']
     CLIENT_SECRET = os.environ['GMAIL_CLIENT_SECRET']
-    REFRESH_TOKEN = os.environ['KANESAKA_GMAIL_REFRESH_TOKEN']
+    KANESAKA_REFRESH_TOKEN  = os.environ['KANESAKA_GMAIL_REFRESH_TOKEN']
+    AGNIYOGA_AD_REFRESH_TOKEN = os.environ.get('AGNIYOGA_AD_GMAIL_REFRESH_TOKEN', '')
     INPUT_DIR = os.environ.get('CI_INPUT_DIR', os.path.join(os.environ.get('GITHUB_WORKSPACE', '.'), 'ci_input'))
 else:
     sys.path.insert(0, 'Z:/claude/shared/apikeys')
@@ -22,15 +24,15 @@ else:
     _secrets = _ks_load(os.environ.get('KEYSTORE_PASSWORD'))
     CLIENT_ID     = _secrets['GMAIL_CLIENT_ID']
     CLIENT_SECRET = _secrets['GMAIL_CLIENT_SECRET']
-    REFRESH_TOKEN = _secrets['KANESAKA_GMAIL_REFRESH_TOKEN']
+    KANESAKA_REFRESH_TOKEN    = _secrets['KANESAKA_GMAIL_REFRESH_TOKEN']
+    AGNIYOGA_AD_REFRESH_TOKEN = _secrets.get('GMAIL_REFRESH_TOKEN', '')
     INPUT_DIR = os.path.join(os.path.dirname(__file__))
 
 import urllib.request, urllib.parse
 
 os.makedirs(INPUT_DIR, exist_ok=True)
-OUT_FILE  = os.path.join(INPUT_DIR, 'mail_kanesaka_gmail.json')
 
-# 重要ドメイン（これ以外は表示しない）
+# 重要ドメイン（kanesaka.agni@gmail.com はこれ以外表示しない）
 IMPORTANT_DOMAINS = {
     'mamail.jp',          # 幕張総合Net
     'chiba-c.ed.jp',      # 千葉県立高校（サッカー部顧問）
@@ -43,16 +45,33 @@ IMPORTANT_DOMAINS = {
     'github.com',         # GitHub
 }
 
-def get_access_token():
+ACCOUNTS = [
+    {
+        'address': 'kanesaka.agni@gmail.com',
+        'refresh_token': KANESAKA_REFRESH_TOKEN,
+        'domain_filter': IMPORTANT_DOMAINS,  # Noneなら無フィルタ
+        'out_file': os.path.join(INPUT_DIR, 'mail_kanesaka_gmail.json'),
+    },
+    {
+        'address': 'agniyoga.ad@gmail.com',
+        'refresh_token': AGNIYOGA_AD_REFRESH_TOKEN,
+        'domain_filter': None,  # 2026-07-04時点：ユーザー希望によりフィルタなし・全件表示
+        'out_file': os.path.join(INPUT_DIR, 'mail_agniyoga_ad_gmail.json'),
+    },
+]
+
+
+def get_access_token(refresh_token):
     data = urllib.parse.urlencode({
         'client_id': CLIENT_ID,
         'client_secret': CLIENT_SECRET,
-        'refresh_token': REFRESH_TOKEN,
+        'refresh_token': refresh_token,
         'grant_type': 'refresh_token'
     }).encode()
     req = urllib.request.Request('https://oauth2.googleapis.com/token', data=data, method='POST')
     with urllib.request.urlopen(req) as r:
         return json.loads(r.read())['access_token']
+
 
 def gmail_api(token, path):
     req = urllib.request.Request(
@@ -62,10 +81,12 @@ def gmail_api(token, path):
     with urllib.request.urlopen(req) as r:
         return json.loads(r.read())
 
+
 def extract_domain(from_str):
     m = re.search(r'<(.+?)>', from_str)
     addr = m.group(1) if m else from_str.strip()
     return addr.split('@')[-1].lower() if '@' in addr else ''
+
 
 def _decode_part(data):
     if not data:
@@ -77,6 +98,7 @@ def _decode_part(data):
     except Exception:
         return ''
 
+
 def _strip_html(s):
     s = re.sub(r'(?is)<(script|style).*?</\1>', '', s)
     s = re.sub(r'(?i)<br\s*/?>', '\n', s)
@@ -85,6 +107,7 @@ def _strip_html(s):
     s = html.unescape(s)
     s = re.sub(r'\n{3,}', '\n\n', s)
     return s.strip()
+
 
 def extract_body(payload, max_len=3000):
     """Gmail APIのfull payloadから本文を抽出。text/plain優先、なければtext/htmlをタグ除去。"""
@@ -108,11 +131,14 @@ def extract_body(payload, max_len=3000):
         text = text[:max_len] + '\n…（以下省略）'
     return text
 
-def fetch_mails():
-    token = get_access_token()
 
-    # 未読 + 受信箱 + 宛先がkanesaka.agni@gmail.comのもののみ
-    q = urllib.parse.quote('is:unread in:inbox to:kanesaka.agni@gmail.com')
+def fetch_account(account):
+    if not account['refresh_token']:
+        print(f"[{account['address']}] refresh_tokenが未設定のためスキップ")
+        return
+    token = get_access_token(account['refresh_token'])
+
+    q = urllib.parse.quote(f"is:unread in:inbox to:{account['address']}")
     result = gmail_api(token, f'messages?q={q}&maxResults=50')
     messages = result.get('messages', [])
 
@@ -124,7 +150,7 @@ def fetch_mails():
         from_str = hdrs.get('From', '')
         domain = extract_domain(from_str)
 
-        if domain not in IMPORTANT_DOMAINS:
+        if account['domain_filter'] is not None and domain not in account['domain_filter']:
             continue
 
         subj = hdrs.get('Subject', '（件名なし）')
@@ -134,7 +160,6 @@ def fetch_mails():
         full = gmail_api(token, f'messages/{m["id"]}?format=full')
         body = extract_body(full.get('payload', {})) or snippet
 
-        # 日付をパース
         try:
             from email.utils import parsedate_to_datetime
             clean = re.sub(r'\s*\([A-Z]+\)\s*$', '', date_str.strip())
@@ -158,7 +183,6 @@ def fetch_mails():
             'body': body,
         })
 
-    # 日付降順
     mails.sort(key=lambda x: x.get('date_sort', ''), reverse=True)
 
     out = {
@@ -166,11 +190,15 @@ def fetch_mails():
         'count': len(mails),
         'mails': mails
     }
-    with open(OUT_FILE, 'w', encoding='utf-8') as f:
+    with open(account['out_file'], 'w', encoding='utf-8') as f:
         json.dump(out, f, ensure_ascii=False, indent=2)
 
-    print(f'[check_kanesaka_gmail] {len(mails)}件保存 → {OUT_FILE}')
-    return out
+    print(f"[{account['address']}] {len(mails)}件保存 → {account['out_file']}")
+
 
 if __name__ == '__main__':
-    fetch_mails()
+    for acct in ACCOUNTS:
+        try:
+            fetch_account(acct)
+        except Exception as e:
+            print(f"[{acct['address']}] ERROR: {e}")

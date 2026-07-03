@@ -34,6 +34,7 @@ JUDGMENT_FILE      = os.path.join(INPUT_DIR, "mail_judgment.json")
 TRIAL_FILE         = os.path.join(INPUT_DIR, "mail_trial_agniyoga.json")
 SCHOOL_FILE        = os.path.join(INPUT_DIR, "mail_school_agniyoga.json")
 KANESAKA_GMAIL_FILE = os.path.join(INPUT_DIR, "mail_kanesaka_gmail.json")
+AGNIYOGA_AD_GMAIL_FILE = os.path.join(INPUT_DIR, "mail_agniyoga_ad_gmail.json")
 
 OUT_MAIN  = os.path.join(OUTPUT_DIR, "kanesaka_tasks_secure.html" if not CI_MODE else "kanesaka-tasks.html")
 OUT_MAIL  = os.path.join(OUTPUT_DIR, "kanesaka-mail-all-secure.html" if not CI_MODE else "kanesaka-mail-all.html")
@@ -340,7 +341,7 @@ def generate_mail_section(urgent_mails):
         </div>""")
     return '\n'.join(parts)
 
-def generate_kanesaka_gmail_section(mails):
+def generate_kanesaka_gmail_section(mails, id_prefix='gm', default_to='kanesaka.agni@gmail.com'):
     if not mails:
         return '<div style="font-size:12px;color:var(--sub);padding:6px 0;">未読なし</div>'
     domain_icons = {
@@ -352,7 +353,7 @@ def generate_kanesaka_gmail_section(mails):
     parts = []
     for m in mails:
         icon = domain_icons.get(m.get('domain',''), '📧')
-        mid  = 'gm-' + m['id']
+        mid  = f'{id_prefix}-' + m['id']
         subj = he(m.get('subject', '（件名なし）'))
         frm  = he(m.get('from', ''))
         date = he(m.get('date', ''))
@@ -364,7 +365,7 @@ def generate_kanesaka_gmail_section(mails):
           </div>
           <div class="mail-sub">{date}　{frm}</div>
           <div class="mail-detail">
-            <div class="detail-from">宛先: {he(m.get('to', 'kanesaka.agni@gmail.com'))}</div>
+            <div class="detail-from">宛先: {he(m.get('to', default_to))}</div>
             <div class="detail-body">{full_body}</div>
           </div>
         </div>""")
@@ -402,6 +403,20 @@ def _extract_name(item):
             return m.group(1).strip()[:14]
     return item.get('subject', '')[:20]
 
+def _extract_studio(item):
+    m = re.search(r'【スタジオ】(.+)', item.get('body', ''))
+    if m:
+        return m.group(1).strip().replace('スタジオ', '')
+    m = re.search(r'体験受付:(.+?)<', item.get('from', ''))
+    return m.group(1).strip().replace('スタジオ', '') if m else ''
+
+def _extract_utm_source(item):
+    body = item.get('body', '')
+    m = re.search(r'\[Last Touch\][^\[]*?source:\s*(\S+)', body)
+    if not m:
+        m = re.search(r'\[First Touch\][^\[]*?source:\s*(\S+)', body)
+    return m.group(1).strip() if m else ''
+
 def _extract_date_short(item):
     dt = parse_mail_date(item.get('date', ''))
     return f'{dt.month}/{dt.day}' if dt else '?'
@@ -411,13 +426,20 @@ def generate_kpi_section(trials, shiryo_list, setsumeikai_list, n_training, kpi_
     n_shiryo      = len(shiryo_list)
     n_setsumeikai = len(setsumeikai_list)
 
-    def mail_rows(items, prefix):
+    def mail_rows(items, prefix, show_source=False):
         if not items:
             return '<div class="kpi-mail-empty">今月はまだありません</div>'
         parts = []
         for i, item in enumerate(items):
             rid = f'{prefix}-{i}'
             name = he(_extract_name(item))
+            if show_source:
+                studio = _extract_studio(item)
+                if studio:
+                    name += he(f'／{studio}')
+                utm_source = _extract_utm_source(item)
+                if 'google' in utm_source.lower():
+                    name += ' <span class="badge badge-blue" style="font-size:9px;padding:1px 5px;">Google</span>'
             ds   = he(_extract_date_short(item))
             detail = _mail_card(item)
             parts.append(
@@ -429,7 +451,7 @@ def generate_kpi_section(trials, shiryo_list, setsumeikai_list, n_training, kpi_
             )
         return ''.join(parts)
 
-    t_rows = mail_rows(trials,       'km-trial')
+    t_rows = mail_rows(trials,       'km-trial', show_source=True)
     s_rows = mail_rows(shiryo_list,  'km-shiryo')
     e_rows = mail_rows(setsumeikai_list, 'km-setsu')
 
@@ -556,8 +578,9 @@ DASHBOARD_TEMPLATE = """<!DOCTYPE html>
   .log-item { font-size: 11px; color: var(--sub); padding: 3px 0; border-bottom: 1px dotted var(--border); }
   .log-item:last-child { border-bottom: none; }
   .archived { opacity: 1; background: #e5e7eb !important; border-color: #9ca3af !important; }
-  .archived .adhoc-text, .archived .task-title, .archived .mail-title, .archived .routine-name { color: #4b5563; text-decoration: line-through; }
+  .archived .adhoc-text, .archived .task-title, .archived .mail-title, .archived .routine-name { color: #4b5563; }
   .archived .mail-sub, .archived .task-next, .archived .adhoc-due, .archived .routine-freq, .archived .detail-from, .archived .detail-body { color: #6b7280; }
+  .done-time-badge { font-size: 10px; font-weight: normal; color: #6b7280; margin-left: 6px; }
   .undo-btn { display:none; font-size:10px; color:var(--blue); background:none; border:1px solid var(--blue); border-radius:3px; cursor:pointer; padding:1px 5px; margin-left:6px; vertical-align:middle; }
   .archived .undo-btn { display:inline; }
   .hist-item { display:flex; gap:8px; padding:5px 0; border-bottom:1px solid var(--border); font-size:12px; color:var(--sub); align-items:baseline; }
@@ -643,11 +666,29 @@ async function loadApiCost(){
   }catch(e){}
 }
 function mergeDone(a,b){const m={};[...a,...b].forEach(function(i){if(!m[i.id]||i.completedAt>m[i.id].completedAt)m[i.id]=i;});return Object.values(m);}
+function fmtDoneTime(ts){
+  var d=new Date(ts);
+  return (d.getMonth()+1)+'/'+d.getDate()+' '+String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');
+}
 function applyDoneState(list){
   var now=Date.now(),H12=12*3600*1000,H7D=7*24*3600*1000;
   var doneBase={};
   list.forEach(function(item){if(!item.id.startsWith('r-'))return;var base=item.id.replace(/-\\d{8}$/,'');if(!doneBase[base]||item.completedAt>doneBase[base])doneBase[base]=item.completedAt;});
-  list.forEach(function(item){var el=document.getElementById(item.id);if(!el)return;el.classList.remove('archived');el.style.display='';if(now-item.completedAt<H12)el.classList.add('archived');else el.style.display='none';});
+  list.forEach(function(item){
+    var el=document.getElementById(item.id);if(!el)return;
+    el.classList.remove('archived');el.style.display='';
+    if(now-item.completedAt<H12){
+      el.classList.add('archived');
+      var titleEl=el.querySelector('.mail-title,.task-title,.adhoc-text,.routine-name');
+      if(titleEl){
+        var badge=titleEl.querySelector('.done-time-badge');
+        if(!badge){badge=document.createElement('span');badge.className='done-time-badge';titleEl.appendChild(badge);}
+        badge.textContent=' ✓完了 '+fmtDoneTime(item.completedAt);
+      }
+    }else{
+      el.style.display='none';
+    }
+  });
   document.querySelectorAll('[id^="r-"]').forEach(function(el){if(el.style.display==='none'||el.classList.contains('archived'))return;var base=el.id.replace(/-\\d{8}$/,'');if(doneBase[base]&&now-doneBase[base]<H7D)el.style.display='none';});
 }
 function toggleKpiDetail(id){const el=document.getElementById(id);if(!el)return;const open=el.classList.contains('open');document.querySelectorAll('.kpi-mail-detail.open').forEach(e=>e.classList.remove('open'));if(!open)el.classList.add('open');}
@@ -828,6 +869,12 @@ function toggleDetail(id){const el=document.getElementById(id);if(el)el.classLis
   <div class="section-head">📨 個人メール・未読（kanesaka.agni@gmail.com）<span style="font-size:10px;font-weight:normal;margin-left:8px;color:var(--sub);">###GMAIL_FETCHED###</span></div>
   <div class="card">
 ###KANESAKA_GMAIL###
+  </div>
+
+  <!-- ═══ agniyoga.ad メール（未読・全件） ═══ -->
+  <div class="section-head">📨 agniyoga.ad@gmail.com・未読（フィルタなし）<span style="font-size:10px;font-weight:normal;margin-left:8px;color:var(--sub);">###AGNIYOGA_AD_GMAIL_FETCHED###</span></div>
+  <div class="card">
+###AGNIYOGA_AD_GMAIL###
   </div>
 
   <!-- ═══ 近日の予定 ═══ -->
@@ -1397,9 +1444,23 @@ try:
 except Exception as e:
     print(f"Gmail JSON読み込みエラー: {e}")
 
+# 2c) agniyoga.ad@gmail.com unread mails（同じsubprocess呼び出しで取得済み）
+agniyoga_ad_gmail_mails = []
+agniyoga_ad_gmail_fetched_at = ''
+try:
+    with open(AGNIYOGA_AD_GMAIL_FILE, encoding='utf-8') as f:
+        gm2 = json.load(f)
+    agniyoga_ad_gmail_mails = gm2.get('mails', [])
+    agniyoga_ad_gmail_fetched_at = gm2.get('fetched_at', '')
+    print(f"agniyoga.ad Gmail（未読）: {len(agniyoga_ad_gmail_mails)}件")
+except Exception as e:
+    print(f"agniyoga.ad Gmail JSON読み込みエラー: {e}")
+
 # 3) Generate dynamic sections
 mail_html        = generate_mail_section(judgment.get('urgent_mails', []))
 gmail_html       = generate_kanesaka_gmail_section(kanesaka_gmail_mails)
+agniyoga_ad_gmail_html = generate_kanesaka_gmail_section(
+    agniyoga_ad_gmail_mails, id_prefix='gmad', default_to='agniyoga.ad@gmail.com')
 kpi_html         = generate_kpi_section(
     trials, shiryo_list, setsumeikai_list, n_training,
     kpi_note, today, month
@@ -1411,6 +1472,8 @@ dashboard_html = (DASHBOARD_TEMPLATE
     .replace('###MAIL_SECTION###', mail_html)
     .replace('###KANESAKA_GMAIL###', gmail_html)
     .replace('###GMAIL_FETCHED###', f'取得: {gmail_fetched_at}')
+    .replace('###AGNIYOGA_AD_GMAIL###', agniyoga_ad_gmail_html)
+    .replace('###AGNIYOGA_AD_GMAIL_FETCHED###', f'取得: {agniyoga_ad_gmail_fetched_at}')
     .replace('###KPI_SECTION###', kpi_html)
     .replace('###ROUTINE_TASKS###', routine_html)
     .replace('###MONTH###', f'{month}月')
