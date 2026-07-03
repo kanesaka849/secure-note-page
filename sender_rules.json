@@ -1,0 +1,33 @@
+{
+  "always_show": [
+    "mamail.jp",
+    "chiba-c.ed.jp",
+    "mail.rakuten-bank.co.jp",
+    "musashinobank.co.jp",
+    "cardservice.co.jp",
+    "bizcomfort.jp",
+    "noreply@bizcomfort.jp",
+    "0101.co.jp",
+    "timerex.net",
+    "github.com",
+    "no-reply@accounts.google.com",
+    "attendance.officestation.jp",
+    "notifications@link.com"
+  ],
+  "always_hide": [
+    "sg.newsletter.agoda-emails.com",
+    "marketing.klook.com",
+    "zozo.jp",
+    "mail-noreply@google.com",
+    "chiba-bazooka2nd.com",
+    "cityheaven.net",
+    "mail.cityheaven.net",
+    "bijouluna.jp",
+    "lensspeed.jp",
+    "devo.jp",
+    "backofficeforce.jp",
+    "money.note.com",
+    "email.claude.com",
+    "mail.7cs-card.co.jp"
+  ]
+}
