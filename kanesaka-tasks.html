@@ -1,9 +1,9 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>🔐 Secure Page</title>
+<title>Secure Page</title>
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body {
@@ -20,95 +20,42 @@ body {
   padding: 40px 48px;
   width: 100%;
   max-width: 400px;
-  box-shadow: 0 25px 60px rgba(0,0,0,0.5);
+  box-shadow: 0 25px 60px rgba(0,0,0,.5);
   border: 1px solid #334155;
 }
-.lock-icon {
-  text-align: center;
-  font-size: 48px;
-  margin-bottom: 20px;
+.lock-icon { text-align: center; font-size: 48px; margin-bottom: 20px; }
+h1 { text-align: center; color: #e2e8f0; font-size: 20px; font-weight: 600; margin-bottom: 6px; }
+.subtitle { text-align: center; color: #64748b; font-size: 13px; margin-bottom: 28px; }
+label { display: block; color: #94a3b8; font-size: 12px; font-weight: 600;
+         text-transform: uppercase; letter-spacing: .08em; margin-bottom: 8px; }
+input[type=password] {
+  width: 100%; background: #0f172a; border: 1px solid #334155;
+  border-radius: 8px; padding: 12px 16px; color: #e2e8f0; font-size: 15px;
+  outline: none; transition: border-color .2s;
 }
-h1 {
-  text-align: center;
-  color: #e2e8f0;
-  font-size: 20px;
-  font-weight: 600;
-  margin-bottom: 6px;
-}
-.subtitle {
-  text-align: center;
-  color: #64748b;
-  font-size: 13px;
-  margin-bottom: 28px;
-}
-label {
-  display: block;
-  color: #94a3b8;
-  font-size: 12px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  margin-bottom: 8px;
-}
-input[type="password"] {
-  width: 100%;
-  background: #0f172a;
-  border: 1px solid #334155;
-  border-radius: 8px;
-  padding: 12px 16px;
-  color: #e2e8f0;
-  font-size: 15px;
-  outline: none;
-  transition: border-color 0.2s;
-}
-input[type="password"]:focus {
-  border-color: #3b82f6;
-}
+input[type=password]:focus { border-color: #3b82f6; }
 button {
-  width: 100%;
-  margin-top: 16px;
-  background: #3b82f6;
-  color: white;
-  border: none;
-  border-radius: 8px;
-  padding: 13px;
-  font-size: 15px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background 0.2s;
+  width: 100%; margin-top: 16px; background: #3b82f6; color: white;
+  border: none; border-radius: 8px; padding: 13px; font-size: 15px;
+  font-weight: 600; cursor: pointer; transition: background .2s;
 }
 button:hover { background: #2563eb; }
 button:disabled { background: #374151; cursor: not-allowed; }
-#status {
-  margin-top: 12px;
-  text-align: center;
-  font-size: 13px;
-  color: #ef4444;
-  min-height: 20px;
-}
+#status { margin-top: 12px; text-align: center; font-size: 13px;
+           color: #ef4444; min-height: 20px; }
 #status.working { color: #94a3b8; }
-#content-frame {
-  display: none;
-  width: 100%;
-  height: 100vh;
-  border: none;
-}
 </style>
 </head>
 <body>
-
 <div id="lock-screen">
-  <div class="lock-icon">🔐</div>
-  <h1>アクセス制限</h1>
-  <p class="subtitle">このページはパスワードで保護されています</p>
-  <label for="pw-input">パスワード</label>
-  <input type="password" id="pw-input" placeholder="パスワードを入力" autofocus>
-  <button id="unlock-btn" onclick="unlock()">ロック解除</button>
+  <div class="lock-icon">&#x1F510;</div>
+  <h1>&#x30A2;&#x30AF;&#x30BB;&#x30B9;&#x5236;&#x9650;</h1>
+  <p class="subtitle">&#x3053;&#x306E;&#x30DA;&#x30FC;&#x30B8;&#x306F;&#x30D1;&#x30B9;&#x30EF;&#x30FC;&#x30C9;&#x3067;&#x4FDD;&#x8B77;&#x3055;&#x308C;&#x3066;&#x3044;&#x307E;&#x3059;</p>
+  <label for="pw-input">&#x30D1;&#x30B9;&#x30EF;&#x30FC;&#x30C9;</label>
+  <input type="password" id="pw-input" placeholder="Password" autofocus>
+  <button id="unlock-btn" onclick="unlock()">&#x30ED;&#x30C3;&#x30AF;&#x89E3;&#x9664;</button>
   <div id="status"></div>
 </div>
-
-<iframe id="content-frame" sandbox="allow-scripts allow-same-origin"></iframe>
-
 <script>
 const SALT = "3q55NqijBN+vpw7VRwerlg==";
 const IV   = "sAoInyjIEgcKOpQA6lVZqQ==";
@@ -125,43 +72,29 @@ function b64ToBuffer(b64) {
 async function unlock() {
   const pw = document.getElementById('pw-input').value;
   if (!pw) return;
-
   const btn = document.getElementById('unlock-btn');
-  const status = document.getElementById('status');
+  const st  = document.getElementById('status');
   btn.disabled = true;
-  status.className = 'working';
-  status.textContent = '復号中…';
+  st.className = 'working';
+  st.textContent = '\u5FA9\u53F7\u4E2D\u2026';
 
   try {
-    const enc = new TextEncoder();
-    const keyMaterial = await crypto.subtle.importKey(
-      'raw', enc.encode(pw), 'PBKDF2', false, ['deriveKey']
+    const keyMat = await crypto.subtle.importKey(
+      'raw', new TextEncoder().encode(pw), 'PBKDF2', false, ['deriveKey']
     );
     const key = await crypto.subtle.deriveKey(
-      { name: 'PBKDF2', salt: b64ToBuffer(SALT), iterations: ITER, hash: 'SHA-256' },
-      keyMaterial,
-      { name: 'AES-CBC', length: 256 },
-      false, ['decrypt']
+      { name:'PBKDF2', salt:b64ToBuffer(SALT), iterations:ITER, hash:'SHA-256' },
+      keyMat, { name:'AES-CBC', length:256 }, false, ['decrypt']
     );
+    // ArrayBufferを直接Blobに渡す（TextDecoder/string経由不要、UTF-8保持）
     const decrypted = await crypto.subtle.decrypt(
-      { name: 'AES-CBC', iv: b64ToBuffer(IV) },
-      key,
-      b64ToBuffer(CT)
+      { name:'AES-CBC', iv:b64ToBuffer(IV) }, key, b64ToBuffer(CT)
     );
-    const html = new TextDecoder().decode(decrypted);
-
-    // blob URLでiframeに表示
-    const blob = new Blob([html], { type: 'text/html; charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const frame = document.getElementById('content-frame');
-    frame.src = url;
-    frame.style.display = 'block';
-    document.getElementById('lock-screen').style.display = 'none';
-    document.body.style.background = '#f4f5f7';
-
-  } catch (e) {
-    status.className = '';
-    status.textContent = 'パスワードが違います';
+    const blob = new Blob([decrypted], {type:'text/html;charset=utf-8'});
+    window.location.replace(URL.createObjectURL(blob));
+  } catch(e) {
+    st.className = '';
+    st.textContent = '\u30D1\u30B9\u30EF\u30FC\u30C9\u304C\u9055\u3044\u307E\u3059';
     btn.disabled = false;
   }
 }
