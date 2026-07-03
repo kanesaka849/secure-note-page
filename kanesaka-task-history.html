@@ -4,69 +4,59 @@
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>完了済みタスク履歴</title>
 <style>
-:root{--blue:#2563EB;--green:#16A34A;--red:#DC2626;--sub:#6B7280;--border:#E5E7EB;--bg:#F9FAFB;--text:#111827;}
 *{box-sizing:border-box;margin:0;padding:0;}
-body{font-family:'Helvetica Neue',Arial,sans-serif;background:var(--bg);color:var(--text);padding:20px;}
-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:24px;padding-bottom:12px;border-bottom:2px solid var(--border);}
-header h1{font-size:18px;font-weight:700;}
-.back-link{font-size:13px;color:var(--blue);text-decoration:none;border:1px solid var(--blue);border-radius:6px;padding:4px 12px;}
-.back-link:hover{background:#eff6ff;}
-.clear-btn{font-size:12px;color:var(--sub);background:none;border:1px solid var(--border);border-radius:6px;padding:4px 12px;cursor:pointer;}
-.clear-btn:hover{border-color:var(--red);color:var(--red);}
-.section{background:white;border:1px solid var(--border);border-radius:10px;padding:16px 20px;margin-bottom:16px;}
-.section-title{font-size:13px;font-weight:600;color:var(--sub);margin-bottom:10px;text-transform:uppercase;letter-spacing:.04em;}
-.hist-item{display:flex;align-items:baseline;gap:10px;padding:7px 0;border-bottom:1px solid var(--border);font-size:13px;}
-.hist-item:last-child{border-bottom:none;}
-.hist-date{min-width:90px;flex-shrink:0;font-size:11px;color:var(--sub);}
-.hist-text{flex:1;color:var(--text);}
-.restore-btn{font-size:11px;color:var(--blue);background:none;border:1px solid var(--blue);border-radius:4px;padding:2px 8px;cursor:pointer;flex-shrink:0;}
-.restore-btn:hover{background:#eff6ff;}
-.empty{font-size:13px;color:var(--sub);padding:12px 0;}
-.hdr-btns{display:flex;gap:8px;align-items:center;}
-</style>
-</head>
-<body>
-<header>
-  <h1>✅ 完了済みタスク履歴</h1>
-  <div class="hdr-btns">
-    <button class="clear-btn" onclick="clearHistory()">全件削除</button>
-    <a class="back-link" href="kanesaka-tasks.html">← ダッシュボードへ</a>
+body{font-family:'Segoe UI','Hiragino Sans','Meiryo',sans-serif;background:#0f172a;min-height:100vh;display:flex;align-items:center;justify-content:center;}
+#lock-screen{background:#1e293b;border-radius:16px;padding:40px 48px;width:100%;max-width:400px;box-shadow:0 25px 60px rgba(0,0,0,.5);border:1px solid #334155;}
+.lock-icon{text-align:center;font-size:48px;margin-bottom:20px;}
+h1{text-align:center;color:#e2e8f0;font-size:20px;font-weight:600;margin-bottom:6px;}
+.subtitle{text-align:center;color:#64748b;font-size:13px;margin-bottom:28px;}
+label{display:block;color:#94a3b8;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px;}
+input[type=text],input[type=password]{width:100%;background:#0f172a;border:1px solid #334155;border-radius:8px;padding:12px 16px;color:#e2e8f0;font-size:15px;outline:none;transition:border-color .2s;}
+input[type=text]:focus,input[type=password]:focus{border-color:#3b82f6;}
+button{width:100%;margin-top:16px;background:#3b82f6;color:white;border:none;border-radius:8px;padding:13px;font-size:15px;font-weight:600;cursor:pointer;transition:background .2s;}
+button:hover{background:#2563eb;}button:disabled{background:#374151;cursor:not-allowed;}
+#status{margin-top:12px;text-align:center;font-size:13px;color:#ef4444;min-height:20px;}
+#status.working{color:#94a3b8;}#login-form{display:none;}
+</style></head><body>
+<div id="lock-screen">
+  <div class="lock-icon">&#x1F510;</div>
+  <h1 id="lock-title">&#x8AAD;&#x307F;&#x8FBC;&#x307F;&#x4E2D;&#x2026;</h1>
+  <p class="subtitle" id="lock-sub"><a href="kanesaka-tasks.html" style="color:#94a3b8;font-size:13px;text-decoration:none;">← 戻る</a></p>
+  <div id="login-form">
+    <form onsubmit="unlock();return false;" autocomplete="on">
+      <label for="uid-input">ID</label>
+      <input type="text" id="uid-input" name="username" autocomplete="username" placeholder="ID" style="margin-bottom:16px" autofocus>
+      <label for="pw-input">&#x30D1;&#x30B9;&#x30EF;&#x30FC;&#x30C9;</label>
+      <input type="password" id="pw-input" name="password" autocomplete="current-password" placeholder="Password">
+      <button id="unlock-btn" type="submit">&#x30ED;&#x30C3;&#x30AF;&#x89E3;&#x9664;</button>
+    </form>
+    <div id="status"></div>
   </div>
-</header>
-<div id="hist-container"><p class="empty">完了済みタスクはありません</p></div>
+</div>
 <script>
-const DONE_KEY='ks_done_v1';
-function _gd(){try{return JSON.parse(localStorage.getItem(DONE_KEY)||'[]');}catch{return[];}}
-function _sd(list){localStorage.setItem(DONE_KEY,JSON.stringify(list));}
-function _esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
-function fmtDate(ts){var d=new Date(ts);var m=d.getMonth()+1,dd=d.getDate(),h=d.getHours(),mi=String(d.getMinutes()).padStart(2,'0');return m+'/'+dd+' '+h+':'+mi;}
-function restore(id){_sd(_gd().filter(function(i){return i.id!==id;}));render();}
-function clearHistory(){if(!confirm('全件削除しますか？'))return;_sd([]);render();}
-function render(){
-  var list=_gd().slice().reverse();
-  var el=document.getElementById('hist-container');
-  if(!list.length){el.innerHTML='<p class="empty">完了済みタスクはありません</p>';return;}
-  var now=Date.now(),H12=12*3600*1000;
-  var recent=list.filter(function(i){return now-i.completedAt<H12;});
-  var old=list.filter(function(i){return now-i.completedAt>=H12;});
-  var html='';
-  if(recent.length){
-    html+='<div class="section"><div class="section-title">⏳ 12時間以内（まだダッシュボードに表示中）</div>';
-    recent.forEach(function(item){
-      html+='<div class="hist-item"><span class="hist-date">'+fmtDate(item.completedAt)+'</span><span class="hist-text">'+_esc(item.text||item.id)+'</span><button class="restore-btn" onclick="restore(''+item.id+'')">取り消す</button></div>';
-    });
-    html+='</div>';
-  }
-  if(old.length){
-    html+='<div class="section"><div class="section-title">📁 12時間以上前（ダッシュボードから非表示済み）</div>';
-    old.forEach(function(item){
-      html+='<div class="hist-item"><span class="hist-date">'+fmtDate(item.completedAt)+'</span><span class="hist-text">'+_esc(item.text||item.id)+'</span><button class="restore-btn" onclick="restore(''+item.id+'')">戻す</button></div>';
-    });
-    html+='</div>';
-  }
-  el.innerHTML=html;
+const SALT="TaiOYuy2YHSGWxBTHNJPvg==",IV="NC26xXx8UaXZcRxAuK2Rrw==",CT="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",ITER=100000;
+const SK_UID='ks_uid',SK_PW='ks_pw';
+function b64ToBuffer(b64){const bin=atob(b64),buf=new Uint8Array(bin.length);for(let i=0;i<bin.length;i++)buf[i]=bin.charCodeAt(i);return buf.buffer;}
+async function decryptWith(uid,pw){
+  const km=await crypto.subtle.importKey('raw',new TextEncoder().encode(uid+':'+pw),'PBKDF2',false,['deriveKey']);
+  const key=await crypto.subtle.deriveKey({name:'PBKDF2',salt:b64ToBuffer(SALT),iterations:ITER,hash:'SHA-256'},km,{name:'AES-CBC',length:256},false,['decrypt']);
+  const dec=await crypto.subtle.decrypt({name:'AES-CBC',iv:b64ToBuffer(IV)},key,b64ToBuffer(CT));
+  return new TextDecoder('utf-8').decode(dec);
 }
-render();
-</script>
-</body>
-</html>
+async function unlock(){
+  const uid=document.getElementById('uid-input').value.trim(),pw=document.getElementById('pw-input').value;
+  if(!uid||!pw)return;
+  const btn=document.getElementById('unlock-btn'),st=document.getElementById('status');
+  btn.disabled=true;st.className='working';st.textContent='\u5FA9\u53F7\u4E2D\u2026';
+  try{const html=await decryptWith(uid,pw);sessionStorage.setItem(SK_UID,uid);sessionStorage.setItem(SK_PW,pw);document.open();document.write(html);document.close();}
+  catch(e){sessionStorage.removeItem(SK_UID);sessionStorage.removeItem(SK_PW);st.className='';st.textContent='\u30D1\u30B9\u30EF\u30FC\u30C9\u304C\u9055\u3044\u307E\u3059';btn.disabled=false;}
+}
+(async()=>{
+  const uid=sessionStorage.getItem(SK_UID),pw=sessionStorage.getItem(SK_PW);
+  if(uid&&pw){try{const html=await decryptWith(uid,pw);document.open();document.write(html);document.close();return;}catch(e){sessionStorage.removeItem(SK_UID);sessionStorage.removeItem(SK_PW);}}
+  document.getElementById('lock-title').textContent='\u30A2\u30AF\u30BB\u30B9\u5236\u9650';
+  document.getElementById('lock-sub').innerHTML=`<a href="kanesaka-tasks.html" style="color:#94a3b8;font-size:13px;text-decoration:none;">← 戻る</a>`;
+  document.getElementById('login-form').style.display='block';
+  document.getElementById('uid-input').focus();
+})();
+</script></body></html>
