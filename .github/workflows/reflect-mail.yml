@@ -1,0 +1,51 @@
+name: reflect-mail
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  reflect:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install cryptography
+
+      - name: Fetch mail & judge with Anthropic API
+        env:
+          MAIL_KANESAKA_ACTIVIA: ${{ secrets.MAIL_KANESAKA_ACTIVIA }}
+          MAIL_KANESAKA_ACTIVIA_PASS: ${{ secrets.MAIL_KANESAKA_ACTIVIA_PASS }}
+          MAIL_TRIAL_AGNIYOGA: ${{ secrets.MAIL_TRIAL_AGNIYOGA }}
+          MAIL_TRIAL_AGNIYOGA_PASS: ${{ secrets.MAIL_TRIAL_AGNIYOGA_PASS }}
+          MAIL_SCHOOL_AGNIYOGA: ${{ secrets.MAIL_SCHOOL_AGNIYOGA }}
+          MAIL_SCHOOL_AGNIYOGA_PASS: ${{ secrets.MAIL_SCHOOL_AGNIYOGA_PASS }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: python .github/scripts/ci_fetch_and_judge.py
+
+      - name: Rebuild encrypted dashboard
+        env:
+          DASHBOARD_PW: ${{ secrets.DASHBOARD_PW }}
+          DASHBOARD_SYNC_TOKEN: ${{ secrets.DASHBOARD_SYNC_TOKEN }}
+          GMAIL_CLIENT_ID: ${{ secrets.GMAIL_CLIENT_ID }}
+          GMAIL_CLIENT_SECRET: ${{ secrets.GMAIL_CLIENT_SECRET }}
+          KANESAKA_GMAIL_REFRESH_TOKEN: ${{ secrets.KANESAKA_GMAIL_REFRESH_TOKEN }}
+        run: python .github/scripts/rebuild_all.py
+
+      - name: Commit & push (only built output, never ci_input/ raw mail)
+        run: |
+          git config user.name "reflect-mail-bot"
+          git config user.email "actions@github.com"
+          git add kanesaka-tasks.html kanesaka-mail-all.html kanesaka-task-history.html api_usage_log.json
+          git diff --cached --quiet && echo "No changes" && exit 0
+          git commit -m "reflect-mail: auto update $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          git push
