@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>完了済みタスク履歴</title>
+<style>
+:root{--blue:#2563EB;--green:#16A34A;--red:#DC2626;--sub:#6B7280;--border:#E5E7EB;--bg:#F9FAFB;--text:#111827;}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'Helvetica Neue',Arial,sans-serif;background:var(--bg);color:var(--text);padding:20px;}
+header{display:flex;align-items:center;justify-content:space-between;margin-bottom:24px;padding-bottom:12px;border-bottom:2px solid var(--border);}
+header h1{font-size:18px;font-weight:700;}
+.back-link{font-size:13px;color:var(--blue);text-decoration:none;border:1px solid var(--blue);border-radius:6px;padding:4px 12px;}
+.back-link:hover{background:#eff6ff;}
+.clear-btn{font-size:12px;color:var(--sub);background:none;border:1px solid var(--border);border-radius:6px;padding:4px 12px;cursor:pointer;}
+.clear-btn:hover{border-color:var(--red);color:var(--red);}
+.section{background:white;border:1px solid var(--border);border-radius:10px;padding:16px 20px;margin-bottom:16px;}
+.section-title{font-size:13px;font-weight:600;color:var(--sub);margin-bottom:10px;text-transform:uppercase;letter-spacing:.04em;}
+.hist-item{display:flex;align-items:baseline;gap:10px;padding:7px 0;border-bottom:1px solid var(--border);font-size:13px;}
+.hist-item:last-child{border-bottom:none;}
+.hist-date{min-width:90px;flex-shrink:0;font-size:11px;color:var(--sub);}
+.hist-text{flex:1;color:var(--text);}
+.restore-btn{font-size:11px;color:var(--blue);background:none;border:1px solid var(--blue);border-radius:4px;padding:2px 8px;cursor:pointer;flex-shrink:0;}
+.restore-btn:hover{background:#eff6ff;}
+.empty{font-size:13px;color:var(--sub);padding:12px 0;}
+.hdr-btns{display:flex;gap:8px;align-items:center;}
+</style>
+</head>
+<body>
+<header>
+  <h1>✅ 完了済みタスク履歴</h1>
+  <div class="hdr-btns">
+    <button class="clear-btn" onclick="clearHistory()">全件削除</button>
+    <a class="back-link" href="kanesaka-tasks.html">← ダッシュボードへ</a>
+  </div>
+</header>
+<div id="hist-container"><p class="empty">完了済みタスクはありません</p></div>
+<script>
+const DONE_KEY='ks_done_v1';
+function _gd(){try{return JSON.parse(localStorage.getItem(DONE_KEY)||'[]');}catch{return[];}}
+function _sd(list){localStorage.setItem(DONE_KEY,JSON.stringify(list));}
+function _esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function fmtDate(ts){var d=new Date(ts);var m=d.getMonth()+1,dd=d.getDate(),h=d.getHours(),mi=String(d.getMinutes()).padStart(2,'0');return m+'/'+dd+' '+h+':'+mi;}
+function restore(id){_sd(_gd().filter(function(i){return i.id!==id;}));render();}
+function clearHistory(){if(!confirm('全件削除しますか？'))return;_sd([]);render();}
+function render(){
+  var list=_gd().slice().reverse();
+  var el=document.getElementById('hist-container');
+  if(!list.length){el.innerHTML='<p class="empty">完了済みタスクはありません</p>';return;}
+  var now=Date.now(),H12=12*3600*1000;
+  var recent=list.filter(function(i){return now-i.completedAt<H12;});
+  var old=list.filter(function(i){return now-i.completedAt>=H12;});
+  var html='';
+  if(recent.length){
+    html+='<div class="section"><div class="section-title">⏳ 12時間以内（まだダッシュボードに表示中）</div>';
+    recent.forEach(function(item){
+      html+='<div class="hist-item"><span class="hist-date">'+fmtDate(item.completedAt)+'</span><span class="hist-text">'+_esc(item.text||item.id)+'</span><button class="restore-btn" onclick="restore(''+item.id+'')">取り消す</button></div>';
+    });
+    html+='</div>';
+  }
+  if(old.length){
+    html+='<div class="section"><div class="section-title">📁 12時間以上前（ダッシュボードから非表示済み）</div>';
+    old.forEach(function(item){
+      html+='<div class="hist-item"><span class="hist-date">'+fmtDate(item.completedAt)+'</span><span class="hist-text">'+_esc(item.text||item.id)+'</span><button class="restore-btn" onclick="restore(''+item.id+'')">戻す</button></div>';
+    });
+    html+='</div>';
+  }
+  el.innerHTML=html;
+}
+render();
+</script>
+</body>
+</html>
