@@ -54,10 +54,10 @@ button:disabled { background: #374151; cursor: not-allowed; }
   <form onsubmit="unlock(); return false;" autocomplete="on">
     <label for="uid-input">ID</label>
     <input type="text" id="uid-input" name="username" autocomplete="username"
-           placeholder="ID" style="margin-bottom:16px">
+           placeholder="ID" style="margin-bottom:16px" autofocus>
     <label for="pw-input">&#x30D1;&#x30B9;&#x30EF;&#x30FC;&#x30C9;</label>
     <input type="password" id="pw-input" name="password" autocomplete="current-password"
-           placeholder="Password" autofocus>
+           placeholder="Password">
     <button id="unlock-btn" type="submit">&#x30ED;&#x30C3;&#x30AF;&#x89E3;&#x9664;</button>
   </form>
   <div id="status"></div>
