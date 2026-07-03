@@ -2,13 +2,14 @@
 ci_fetch_and_judge.py
 GitHub Actions専用スクリプト。以下を実行する：
   1) IMAP経由でkanesaka@activia.co.jp / trial@agniyoga.jp / school@agniyoga.jp を取得
-  2) kanesaka@activia.co.jpの受信内容をAnthropic APIに送り「要対応メール」を判定
-  3) mail_judgment.json / mail_trial_agniyoga.json / mail_school_agniyoga.json を
+  2) Gmail API経由でkanesaka.agni@gmail.comの未読メールを取得（ドメインホワイトリストなし）
+  3) 1と2の受信内容をAnthropic APIに送り、それぞれ「表示すべきメール」を判定
+  4) mail_judgment.json / mail_trial_agniyoga.json / mail_school_agniyoga.json / mail_kanesaka_gmail.json を
      ci_input/ に書き出す（このディレクトリはコミットしない＝平文メール内容を公開リポジトリに残さない）
-  4) API利用量（トークン数・概算コスト）を api_usage_log.json に追記する（こちらはコミット対象・
+  5) API利用量（トークン数・概算コスト）を api_usage_log.json に追記する（こちらはコミット対象・
      メール本文などの機微情報は一切含まない）
 """
-import imaplib, ssl, email, json, os, sys, re, urllib.request
+import imaplib, ssl, email, json, os, sys, re, base64, html, urllib.request, urllib.parse
 from email.header import decode_header
 from datetime import datetime, timezone
 
@@ -27,6 +28,10 @@ ACCOUNTS = {
     'trial':   {'user': os.environ['MAIL_TRIAL_AGNIYOGA'],   'pass': os.environ['MAIL_TRIAL_AGNIYOGA_PASS']},
     'school':  {'user': os.environ['MAIL_SCHOOL_AGNIYOGA'],  'pass': os.environ['MAIL_SCHOOL_AGNIYOGA_PASS']},
 }
+
+GMAIL_CLIENT_ID     = os.environ.get('GMAIL_CLIENT_ID', '')
+GMAIL_CLIENT_SECRET = os.environ.get('GMAIL_CLIENT_SECRET', '')
+KANESAKA_GMAIL_REFRESH_TOKEN = os.environ.get('KANESAKA_GMAIL_REFRESH_TOKEN', '')
 
 ANTHROPIC_API_KEY = os.environ['ANTHROPIC_API_KEY']
 ANTHROPIC_MODEL    = os.environ.get('ANTHROPIC_MODEL', 'claude-haiku-4-5-20251001')
@@ -98,31 +103,7 @@ def fetch_account(user, password, n):
     return results
 
 
-def call_anthropic_judge(mails):
-    """kanesaka@activia.co.jp の受信メールをAIに渡し、要対応メールを判定させる。"""
-    digest = []
-    for i, m in enumerate(mails):
-        digest.append(
-            f"[{i}] 件名: {m['subject']}\n差出人: {m['from']}\n日時: {m['date']}\n本文冒頭: {m['body'][:400]}"
-        )
-    joined = '\n---\n'.join(digest)
-
-    prompt = f"""以下はkanesaka@activia.co.jp宛に届いた最新メール一覧です。
-「要対応メール」として残すべきものだけを判定してください。判定基準：
-
-- urgent（緊急）: セキュリティ通知・支払い期限のあるもの・重要な契約手続き・家族/学校からの対応が必要な連絡など、早めの行動が必要なもの
-- info（参考）: すぐの対応は不要だが知っておくべき業務連絡・システム通知など
-- 上記以外（広告・ニュースレター・スパム・自動配信の販促メール等）は除外してください
-
-以下のJSON配列だけを出力してください（説明文・コードブロック記法は不要、JSON配列そのもの）:
-[
-  {{"index": <元のメールの[i]番号>, "type": "urgent"または"info", "icon": "絵文字1つ", "title": "件名を要約した短いタイトル（30字程度）", "sub": "対応内容の要約（60字程度）", "reason": "urgent/infoと判定した理由（20字程度）"}}
-]
-
-対象メール一覧：
-{joined}
-"""
-
+def _call_anthropic(prompt):
     body = json.dumps({
         'model': ANTHROPIC_MODEL,
         'max_tokens': 4096,
@@ -149,6 +130,62 @@ def call_anthropic_judge(mails):
     text = ''.join(block.get('text', '') for block in result.get('content', []) if block.get('type') == 'text')
     usage = result.get('usage', {})
     return text, usage
+
+
+def call_anthropic_judge(mails):
+    """kanesaka@activia.co.jp の受信メールをAIに渡し、要対応メールを判定させる。"""
+    digest = []
+    for i, m in enumerate(mails):
+        digest.append(
+            f"[{i}] 件名: {m['subject']}\n差出人: {m['from']}\n日時: {m['date']}\n本文冒頭: {m['body'][:400]}"
+        )
+    joined = '\n---\n'.join(digest)
+
+    prompt = f"""以下はkanesaka@activia.co.jp宛に届いた最新メール一覧です。
+「要対応メール」として残すべきものだけを判定してください。判定基準：
+
+- urgent（緊急）: セキュリティ通知・支払い期限のあるもの・重要な契約手続き・家族/学校からの対応が必要な連絡など、早めの行動が必要なもの
+- info（参考）: すぐの対応は不要だが知っておくべき業務連絡・システム通知など
+- 上記以外（広告・ニュースレター・スパム・自動配信の販促メール等）は除外してください
+
+以下のJSON配列だけを出力してください（説明文・コードブロック記法は不要、JSON配列そのもの）:
+[
+  {{"index": <元のメールの[i]番号>, "type": "urgent"または"info", "icon": "絵文字1つ", "title": "件名を要約した短いタイトル（30字程度）", "sub": "対応内容の要約（60字程度）", "reason": "urgent/infoと判定した理由（20字程度）"}}
+]
+
+対象メール一覧：
+{joined}
+"""
+    return _call_anthropic(prompt)
+
+
+def call_anthropic_judge_personal(mails):
+    """kanesaka.agni@gmail.com（個人）の未読メールをAIに渡し、表示すべきものだけ判定させる。"""
+    digest = []
+    for i, m in enumerate(mails):
+        digest.append(
+            f"[{i}] 件名: {m['subject']}\n差出人: {m['from']}\n日時: {m['date']}\n本文冒頭: {m['body'][:400]}"
+        )
+    joined = '\n---\n'.join(digest)
+
+    prompt = f"""以下はkanesaka.agni@gmail.com（個人アカウント）宛の未読メール一覧です。
+ダッシュボードに表示する価値があるものだけを判定してください。判定基準：
+
+- 表示する: 学校（幕張総合高校）・サッカー関連・銀行/カード等の重要な通知やセキュリティ警告・
+  打ち合わせ調整（TimeRex等）・GitHub関連・その他個人的に対応/確認が必要そうな連絡
+- 表示しない: 広告・ニュースレター・ポイント/セール告知・SNS通知（Facebook等）・スパム・
+  自動配信の販促メール全般
+
+以下のJSON配列だけを出力してください（説明文・コードブロック記法は不要、JSON配列そのもの）:
+[
+  {{"index": <元のメールの[i]番号>, "reason": "表示すると判定した理由（20字程度）"}}
+]
+表示しないメールはこの配列に含めないでください。
+
+対象メール一覧：
+{joined}
+"""
+    return _call_anthropic(prompt)
 
 
 def parse_judge_output(text, mails):
@@ -180,6 +217,132 @@ def parse_judge_output(text, mails):
             'detail': src['body'][:600],
         })
     return urgent_mails
+
+
+def _gmail_access_token():
+    data = urllib.parse.urlencode({
+        'client_id': GMAIL_CLIENT_ID,
+        'client_secret': GMAIL_CLIENT_SECRET,
+        'refresh_token': KANESAKA_GMAIL_REFRESH_TOKEN,
+        'grant_type': 'refresh_token'
+    }).encode()
+    req = urllib.request.Request('https://oauth2.googleapis.com/token', data=data, method='POST')
+    with urllib.request.urlopen(req) as r:
+        return json.loads(r.read())['access_token']
+
+
+def _gmail_api(token, path):
+    req = urllib.request.Request(
+        f'https://gmail.googleapis.com/gmail/v1/users/me/{path}',
+        headers={'Authorization': f'Bearer {token}'}
+    )
+    with urllib.request.urlopen(req) as r:
+        return json.loads(r.read())
+
+
+def _extract_domain(from_str):
+    m = re.search(r'<(.+?)>', from_str)
+    addr = m.group(1) if m else from_str.strip()
+    return addr.split('@')[-1].lower() if '@' in addr else ''
+
+
+def _gmail_decode_part(data):
+    if not data:
+        return ''
+    padded = data.replace('-', '+').replace('_', '/')
+    padded += '=' * (-len(padded) % 4)
+    try:
+        return base64.b64decode(padded).decode('utf-8', errors='replace')
+    except Exception:
+        return ''
+
+
+def _gmail_strip_html(s):
+    s = re.sub(r'(?is)<(script|style).*?</\1>', '', s)
+    s = re.sub(r'(?i)<br\s*/?>', '\n', s)
+    s = re.sub(r'(?i)</p>', '\n\n', s)
+    s = re.sub(r'<[^>]+>', '', s)
+    s = html.unescape(s)
+    return re.sub(r'\n{3,}', '\n\n', s).strip()
+
+
+def _gmail_extract_body(payload, max_len=3000):
+    plain, htmlbody = '', ''
+
+    def walk(part):
+        nonlocal plain, htmlbody
+        mime = part.get('mimeType', '')
+        body = part.get('body', {})
+        if mime == 'text/plain' and body.get('data') and not plain:
+            plain = _gmail_decode_part(body['data'])
+        elif mime == 'text/html' and body.get('data') and not htmlbody:
+            htmlbody = _gmail_decode_part(body['data'])
+        for sub in part.get('parts', []) or []:
+            walk(sub)
+
+    walk(payload)
+    text = (plain.strip() or _gmail_strip_html(htmlbody)).strip()
+    if len(text) > max_len:
+        text = text[:max_len] + '\n…（以下省略）'
+    return text
+
+
+def fetch_kanesaka_gmail_unread():
+    """kanesaka.agni@gmail.com の未読メールを全件取得（フィルタなし・AIが後で判定）"""
+    if not KANESAKA_GMAIL_REFRESH_TOKEN:
+        print('KANESAKA_GMAIL_REFRESH_TOKEN未設定のためスキップ')
+        return []
+    token = _gmail_access_token()
+    q = urllib.parse.quote('is:unread in:inbox to:kanesaka.agni@gmail.com')
+    result = _gmail_api(token, f'messages?q={q}&maxResults=50')
+    messages = result.get('messages', [])
+
+    mails = []
+    for m in messages:
+        detail = _gmail_api(token, f'messages/{m["id"]}?format=metadata'
+            '&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=Date&metadataHeaders=To')
+        hdrs = {h['name']: h['value'] for h in detail.get('payload', {}).get('headers', [])}
+        from_str = hdrs.get('From', '')
+        subj = hdrs.get('Subject', '（件名なし）')
+        date_str = hdrs.get('Date', '')
+        snippet = detail.get('snippet', '')[:120]
+        full = _gmail_api(token, f'messages/{m["id"]}?format=full')
+        body = _gmail_extract_body(full.get('payload', {})) or snippet
+        try:
+            from email.utils import parsedate_to_datetime
+            clean = re.sub(r'\s*\([A-Z]+\)\s*$', '', date_str.strip())
+            dt = parsedate_to_datetime(clean)
+            date_disp = dt.strftime('%m/%d %H:%M')
+            date_sort = dt.isoformat()
+        except Exception:
+            date_disp = date_str[:16]
+            date_sort = ''
+        mails.append({
+            'id': m['id'], 'from': from_str, 'to': hdrs.get('To', ''),
+            'domain': _extract_domain(from_str), 'subject': subj,
+            'date': date_disp, 'date_sort': date_sort, 'snippet': snippet, 'body': body,
+        })
+    mails.sort(key=lambda x: x.get('date_sort', ''), reverse=True)
+    return mails
+
+
+def parse_personal_judge_output(text, mails):
+    m = re.search(r'\[.*\]', text, re.DOTALL)
+    if not m:
+        print('⚠️ 個人メールAI応答からJSON配列を抽出できませんでした。')
+        return []
+    try:
+        items = json.loads(m.group(0))
+    except Exception as e:
+        print(f'⚠️ JSON parse失敗: {e}')
+        return []
+    kept = []
+    for it in items:
+        idx = it.get('index')
+        if idx is None or idx >= len(mails):
+            continue
+        kept.append(mails[idx])
+    return kept
 
 
 def log_cost(usage):
@@ -224,7 +387,7 @@ def main():
     with open(os.path.join(INPUT_DIR, 'mail_school_agniyoga.json'), 'w', encoding='utf-8') as f:
         json.dump(school_mails, f, ensure_ascii=False, indent=2)
 
-    # 2) AI判定
+    # 2) AI判定（活動用メール）
     urgent_mails = []
     if activia_mails:
         text, usage = call_anthropic_judge(activia_mails)
@@ -242,8 +405,25 @@ def main():
     }
     with open(os.path.join(INPUT_DIR, 'mail_judgment.json'), 'w', encoding='utf-8') as f:
         json.dump(judgment, f, ensure_ascii=False, indent=2)
-
     print(f'✅ 要対応メール {len(urgent_mails)}件 判定完了')
+
+    # 4) kanesaka.agni@gmail.com（個人）の未読メールをAI判定
+    try:
+        personal_mails = fetch_kanesaka_gmail_unread()
+        kept_mails = []
+        if personal_mails:
+            text2, usage2 = call_anthropic_judge_personal(personal_mails)
+            kept_mails = parse_personal_judge_output(text2, personal_mails)
+            log_cost(usage2)
+        with open(os.path.join(INPUT_DIR, 'mail_kanesaka_gmail.json'), 'w', encoding='utf-8') as f:
+            json.dump({
+                'fetched_at': datetime.now().strftime('%Y-%m-%d %H:%M'),
+                'count': len(kept_mails),
+                'mails': kept_mails,
+            }, f, ensure_ascii=False, indent=2)
+        print(f'✅ 個人メール {len(personal_mails)}件中{len(kept_mails)}件を表示対象と判定')
+    except Exception as e:
+        print(f'個人メールAI判定エラー（スキップ）: {e}')
 
 
 if __name__ == '__main__':

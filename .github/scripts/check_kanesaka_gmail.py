@@ -1,7 +1,8 @@
 """
 check_kanesaka_gmail.py
-kanesaka.agni@gmail.com（重要ドメインのみ）と agniyoga.ad@gmail.com（フィルタなし・全件）の
-未読メールを取得 → mail_kanesaka_gmail.json / mail_agniyoga_ad_gmail.json に保存
+agniyoga.ad@gmail.com（フィルタなし・全件）の未読メールを取得 → mail_agniyoga_ad_gmail.json に保存。
+kanesaka.agni@gmail.com の未読メールは、ci_fetch_and_judge.py（GitHub Actions「メール反映」）が
+Anthropic APIによるAI判定つきで別途 mail_kanesaka_gmail.json に書き出すため、ここでは扱わない。
 Task Scheduler から10分ごとに呼び出す。
 """
 import sys, json, os, re, base64, html
@@ -15,7 +16,6 @@ if CI_MODE:
     # GitHub Actions: 認証情報はSecrets経由の環境変数から直接取得（keystore不使用）
     CLIENT_ID     = os.environ['GMAIL_CLIENT_ID']
     CLIENT_SECRET = os.environ['GMAIL_CLIENT_SECRET']
-    KANESAKA_REFRESH_TOKEN  = os.environ['KANESAKA_GMAIL_REFRESH_TOKEN']
     AGNIYOGA_AD_REFRESH_TOKEN = os.environ.get('AGNIYOGA_AD_GMAIL_REFRESH_TOKEN', '')
     INPUT_DIR = os.environ.get('CI_INPUT_DIR', os.path.join(os.environ.get('GITHUB_WORKSPACE', '.'), 'ci_input'))
 else:
@@ -24,7 +24,6 @@ else:
     _secrets = _ks_load(os.environ.get('KEYSTORE_PASSWORD'))
     CLIENT_ID     = _secrets['GMAIL_CLIENT_ID']
     CLIENT_SECRET = _secrets['GMAIL_CLIENT_SECRET']
-    KANESAKA_REFRESH_TOKEN    = _secrets['KANESAKA_GMAIL_REFRESH_TOKEN']
     AGNIYOGA_AD_REFRESH_TOKEN = _secrets.get('GMAIL_REFRESH_TOKEN', '')
     INPUT_DIR = os.path.join(os.path.dirname(__file__))
 
@@ -32,26 +31,7 @@ import urllib.request, urllib.parse
 
 os.makedirs(INPUT_DIR, exist_ok=True)
 
-# 重要ドメイン（kanesaka.agni@gmail.com はこれ以外表示しない）
-IMPORTANT_DOMAINS = {
-    'mamail.jp',          # 幕張総合Net
-    'chiba-c.ed.jp',      # 千葉県立高校（サッカー部顧問）
-    'mail.rakuten-bank.co.jp',   # 楽天銀行
-    'cardservice.co.jp',  # ZEUS決済
-    'bizcomfort.jp',      # BIZcomfort
-    'noreply@bizcomfort.jp',
-    '0101.co.jp',         # 丸井
-    'timerex.net',        # TimeRex（打ち合わせ）
-    'github.com',         # GitHub
-}
-
 ACCOUNTS = [
-    {
-        'address': 'kanesaka.agni@gmail.com',
-        'refresh_token': KANESAKA_REFRESH_TOKEN,
-        'domain_filter': IMPORTANT_DOMAINS,  # Noneなら無フィルタ
-        'out_file': os.path.join(INPUT_DIR, 'mail_kanesaka_gmail.json'),
-    },
     {
         'address': 'agniyoga.ad@gmail.com',
         'refresh_token': AGNIYOGA_AD_REFRESH_TOKEN,
