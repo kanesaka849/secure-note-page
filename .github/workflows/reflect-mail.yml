@@ -50,7 +50,7 @@ jobs:
         run: |
           git config user.name "reflect-mail-bot"
           git config user.email "actions@github.com"
-          git add kanesaka-tasks.html kanesaka-mail-all.html kanesaka-task-history.html api_usage_log.json
+          git add kanesaka-tasks.html kanesaka-mail-all.html kanesaka-task-history.html api_usage_log.json sender_rules.json
           git diff --cached --quiet && echo "No changes" && exit 0
           git commit -m "reflect-mail: auto update $(date -u +%Y-%m-%dT%H:%M:%SZ)"
           git push

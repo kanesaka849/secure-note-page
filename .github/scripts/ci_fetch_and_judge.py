@@ -160,7 +160,8 @@ def call_anthropic_judge(mails):
 
 
 def call_anthropic_judge_personal(mails):
-    """kanesaka.agni@gmail.com（個人）の未読メールをAIに渡し、表示すべきものだけ判定させる。"""
+    """kanesaka.agni@gmail.com（個人）の未読メールのうち、ルールで確定しなかった分だけをAIに渡し判定させる。
+    不明な場合は「表示する」側に倒す（見落としの方が誤表示より害が大きいため）。"""
     digest = []
     for i, m in enumerate(mails):
         digest.append(
@@ -168,24 +169,88 @@ def call_anthropic_judge_personal(mails):
         )
     joined = '\n---\n'.join(digest)
 
-    prompt = f"""以下はkanesaka.agni@gmail.com（個人アカウント）宛の未読メール一覧です。
-ダッシュボードに表示する価値があるものだけを判定してください。判定基準：
+    prompt = f"""以下はkanesaka.agni@gmail.com（個人アカウント）宛の未読メールのうち、
+まだ送信元のルールが定まっていないものです。1件ずつ判定してください。
 
-- 表示する: 学校（幕張総合高校）・サッカー関連・銀行/カード等の重要な通知やセキュリティ警告・
-  打ち合わせ調整（TimeRex等）・GitHub関連・その他個人的に対応/確認が必要そうな連絡
-- 表示しない: 広告・ニュースレター・ポイント/セール告知・SNS通知（Facebook等）・スパム・
-  自動配信の販促メール全般
+- show: 表示する（学校・サッカー・銀行/カード等の重要通知・セキュリティ警告・打ち合わせ調整・
+  仕事関連の連絡・その他対応/確認が必要そうな内容）
+- hide: 表示しない（広告・ニュースレター・ポイント/セール告知・SNS通知・出会い系/風俗系の勧誘・
+  自動配信の販促メール全般）
+- caution: 表示するが「フィッシングの可能性」の注意書きを付ける（支払い情報の更新を急かす・
+  リンククリックを煽る等、正規の通知を装った詐欺の疑いがある場合）
+
+判断に迷う場合は必ず show を選んでください（見落としより誤表示の方が害が少ないため）。
 
 以下のJSON配列だけを出力してください（説明文・コードブロック記法は不要、JSON配列そのもの）:
 [
-  {{"index": <元のメールの[i]番号>, "reason": "表示すると判定した理由（20字程度）"}}
+  {{"index": <元のメールの[i]番号>, "verdict": "show"または"hide"または"caution", "reason": "20字程度"}}
 ]
-表示しないメールはこの配列に含めないでください。
 
 対象メール一覧：
 {joined}
 """
     return _call_anthropic(prompt)
+
+
+RULES_FILE = os.path.join(WORKSPACE, 'sender_rules.json')
+
+DEFAULT_SENDER_RULES = {
+    # 完全一致（メールアドレス）優先、なければドメインで判定。センシティブな判断基準を含むため
+    # メール本文・件名は保存しない＝送信元識別子のみ。
+    'always_show': [
+        'mamail.jp', 'chiba-c.ed.jp', 'mail.rakuten-bank.co.jp', 'musashinobank.co.jp',
+        'cardservice.co.jp', 'bizcomfort.jp', 'noreply@bizcomfort.jp', '0101.co.jp',
+        'timerex.net', 'github.com', 'no-reply@accounts.google.com',
+        'attendance.officestation.jp',
+    ],
+    'always_hide': [
+        'sg.newsletter.agoda-emails.com', 'marketing.klook.com', 'zozo.jp',
+        'mail-noreply@google.com',  # Gmailチームの「不審メール検知済み」通知（対応不要な二次通知）
+        'chiba-bazooka2nd.com', 'cityheaven.net', 'mail.cityheaven.net', 'bijouluna.jp',
+        'lensspeed.jp', 'devo.jp', 'backofficeforce.jp', 'money.note.com',
+        'email.claude.com', 'mail.7cs-card.co.jp',
+    ],
+}
+
+
+def load_sender_rules():
+    if os.path.exists(RULES_FILE):
+        try:
+            with open(RULES_FILE, encoding='utf-8') as f:
+                rules = json.load(f)
+            rules.setdefault('always_show', [])
+            rules.setdefault('always_hide', [])
+            return rules
+        except Exception:
+            pass
+    return {'always_show': list(DEFAULT_SENDER_RULES['always_show']),
+            'always_hide': list(DEFAULT_SENDER_RULES['always_hide'])}
+
+
+def save_sender_rules(rules):
+    with open(RULES_FILE, 'w', encoding='utf-8') as f:
+        json.dump(rules, f, ensure_ascii=False, indent=2)
+
+
+def _sender_address(from_str):
+    m = re.search(r'<(.+?)>', from_str)
+    return (m.group(1) if m else from_str.strip()).lower()
+
+
+def apply_sender_rules(mails, rules):
+    """送信元ルールで確定するものと、AI判定が必要な未確定分に振り分ける。"""
+    decided = []   # (mail, verdict) 確定済み
+    undecided = []
+    for m in mails:
+        addr = _sender_address(m['from'])
+        domain = m.get('domain', '')
+        if addr in rules['always_show'] or domain in rules['always_show']:
+            decided.append((m, 'show'))
+        elif addr in rules['always_hide'] or domain in rules['always_hide']:
+            decided.append((m, 'hide'))
+        else:
+            undecided.append(m)
+    return decided, undecided
 
 
 def parse_judge_output(text, mails):
@@ -327,22 +392,26 @@ def fetch_kanesaka_gmail_unread():
 
 
 def parse_personal_judge_output(text, mails):
+    """戻り値: [(mail, verdict), ...]。verdictはshow/hide/caution。
+    パース失敗時は安全側に倒して全件showとする（見落とし防止）。"""
     m = re.search(r'\[.*\]', text, re.DOTALL)
     if not m:
-        print('⚠️ 個人メールAI応答からJSON配列を抽出できませんでした。')
-        return []
+        print('⚠️ 個人メールAI応答からJSON配列を抽出できませんでした。安全側に倒して全件showとします。')
+        return [(mail, 'show') for mail in mails]
     try:
         items = json.loads(m.group(0))
     except Exception as e:
-        print(f'⚠️ JSON parse失敗: {e}')
-        return []
-    kept = []
-    for it in items:
-        idx = it.get('index')
-        if idx is None or idx >= len(mails):
-            continue
-        kept.append(mails[idx])
-    return kept
+        print(f'⚠️ JSON parse失敗: {e}。安全側に倒して全件showとします。')
+        return [(mail, 'show') for mail in mails]
+
+    by_index = {it.get('index'): it.get('verdict', 'show') for it in items if it.get('index') is not None}
+    results = []
+    for i, mail in enumerate(mails):
+        verdict = by_index.get(i, 'show')  # AIが言及しなかった分もshow側に倒す
+        if verdict not in ('show', 'hide', 'caution'):
+            verdict = 'show'
+        results.append((mail, verdict))
+    return results
 
 
 def log_cost(usage):
@@ -407,14 +476,41 @@ def main():
         json.dump(judgment, f, ensure_ascii=False, indent=2)
     print(f'✅ 要対応メール {len(urgent_mails)}件 判定完了')
 
-    # 4) kanesaka.agni@gmail.com（個人）の未読メールをAI判定
+    # 4) kanesaka.agni@gmail.com（個人）の未読メールを判定
+    #    方式：送信元ルール（always_show/always_hide）で確定するものはAIを呼ばずに即決定。
+    #    未確定の送信元だけAIに判定させ、結果を学習してルールに追記する（次回以降はAI不要）。
+    #    判断に迷う場合はshow側に倒す（重要メールの見落とし防止を優先）。
     try:
+        rules = load_sender_rules()
         personal_mails = fetch_kanesaka_gmail_unread()
-        kept_mails = []
-        if personal_mails:
-            text2, usage2 = call_anthropic_judge_personal(personal_mails)
-            kept_mails = parse_personal_judge_output(text2, personal_mails)
+        decided, undecided = apply_sender_rules(personal_mails, rules)
+        print(f'個人メール: ルールで確定{len(decided)}件・AI判定が必要{len(undecided)}件')
+
+        if undecided:
+            text2, usage2 = call_anthropic_judge_personal(undecided)
+            ai_results = parse_personal_judge_output(text2, undecided)
             log_cost(usage2)
+            for mail, verdict in ai_results:
+                decided.append((mail, verdict))
+                # 学習：今回AIが判定した送信元は次回以降ルールで即決定できるよう記録する
+                # （caution判定は「都度AI判定」を継続するため学習対象から除く）
+                addr = _sender_address(mail['from'])
+                if verdict == 'show' and addr not in rules['always_show']:
+                    rules['always_show'].append(addr)
+                elif verdict == 'hide' and addr not in rules['always_hide']:
+                    rules['always_hide'].append(addr)
+            save_sender_rules(rules)
+
+        kept_mails = []
+        for mail, verdict in decided:
+            if verdict == 'hide':
+                continue
+            if verdict == 'caution':
+                mail = dict(mail)
+                mail['subject'] = '⚠️【フィッシング注意】' + mail['subject']
+            kept_mails.append(mail)
+        kept_mails.sort(key=lambda x: x.get('date_sort', ''), reverse=True)
+
         with open(os.path.join(INPUT_DIR, 'mail_kanesaka_gmail.json'), 'w', encoding='utf-8') as f:
             json.dump({
                 'fetched_at': datetime.now().strftime('%Y-%m-%d %H:%M'),
