@@ -69,8 +69,12 @@ def get_access_token(refresh_token):
         'grant_type': 'refresh_token'
     }).encode()
     req = urllib.request.Request('https://oauth2.googleapis.com/token', data=data, method='POST')
-    with urllib.request.urlopen(req) as r:
-        return json.loads(r.read())['access_token']
+    try:
+        with urllib.request.urlopen(req) as r:
+            return json.loads(r.read())['access_token']
+    except urllib.error.HTTPError as e:
+        print(f'OAuth token error {e.code}: {e.read().decode("utf-8", errors="replace")}')
+        raise
 
 
 def gmail_api(token, path):

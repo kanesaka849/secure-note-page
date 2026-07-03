@@ -35,6 +35,7 @@ TRIAL_FILE         = os.path.join(INPUT_DIR, "mail_trial_agniyoga.json")
 SCHOOL_FILE        = os.path.join(INPUT_DIR, "mail_school_agniyoga.json")
 KANESAKA_GMAIL_FILE = os.path.join(INPUT_DIR, "mail_kanesaka_gmail.json")
 AGNIYOGA_AD_GMAIL_FILE = os.path.join(INPUT_DIR, "mail_agniyoga_ad_gmail.json")
+CALENDAR_FILE = os.path.join(INPUT_DIR, "calendar_events.json")
 
 OUT_MAIN  = os.path.join(OUTPUT_DIR, "kanesaka_tasks_secure.html" if not CI_MODE else "kanesaka-tasks.html")
 OUT_MAIL  = os.path.join(OUTPUT_DIR, "kanesaka-mail-all-secure.html" if not CI_MODE else "kanesaka-mail-all.html")
@@ -320,6 +321,40 @@ def generate_routine_tasks(today_dt):
         </div>""")
     return '\n'.join(parts)
 
+def generate_schedule_section(events, today_dt):
+    if not events:
+        return '    <div class="card"><div style="font-size:12px;color:var(--sub);padding:6px 0;">予定なし、または未取得</div></div>'
+
+    by_month = {}
+    for ev in events:
+        start = ev.get('start', '')
+        if not start:
+            continue
+        try:
+            if ev.get('all_day'):
+                dt = datetime.strptime(start[:10], '%Y-%m-%d')
+            else:
+                dt = datetime.fromisoformat(start.replace('Z', '+00:00')).astimezone().replace(tzinfo=None)
+        except Exception:
+            continue
+        by_month.setdefault((dt.year, dt.month), []).append((dt, ev))
+
+    parts = []
+    for (year, month), items in sorted(by_month.items()):
+        parts.append(f'    <div class="card">\n      <div class="card-title">🗓 {month}月</div>')
+        for dt, ev in items:
+            is_today = dt.date() == today_dt
+            date_cls = 'schedule-date today' if is_today else 'schedule-date'
+            date_label = f'{dt.month}/{dt.day}（{WEEKDAY_JP[dt.weekday()]}）'
+            time_label = '' if ev.get('all_day') else dt.strftime('%H:%M〜')
+            loc = f'　@{he(ev["location"])}' if ev.get('location') else ''
+            parts.append(f"""      <div class="schedule-item">
+        <div class="{date_cls}">{date_label}</div>
+        <div class="schedule-content">{he(ev.get('summary',''))} {time_label}{loc}</div>
+      </div>""")
+        parts.append('    </div>')
+    return '\n'.join(parts)
+
 # ── HTML Generators ─────────────────────────────────────────────────────
 def he(s):
     return s.replace('&','&amp;').replace('<','&lt;').replace('>','&gt;').replace('"','&quot;').replace('\n','<br>')
@@ -341,7 +376,7 @@ def generate_mail_section(urgent_mails):
         </div>""")
     return '\n'.join(parts)
 
-def generate_kanesaka_gmail_section(mails, id_prefix='gm', default_to='kanesaka.agni@gmail.com'):
+def generate_kanesaka_gmail_section(mails, id_prefix='gm', default_to='kanesaka.agni@gmail.com', allow_block=False):
     if not mails:
         return '<div style="font-size:12px;color:var(--sub);padding:6px 0;">未読なし</div>'
     domain_icons = {
@@ -354,13 +389,18 @@ def generate_kanesaka_gmail_section(mails, id_prefix='gm', default_to='kanesaka.
     for m in mails:
         icon = domain_icons.get(m.get('domain',''), '📧')
         mid  = f'{id_prefix}-' + m['id']
+        domain = he(m.get('domain', ''))
         subj = he(m.get('subject', '（件名なし）'))
         frm  = he(m.get('from', ''))
         date = he(m.get('date', ''))
         full_body = he(m.get('body') or m.get('snippet', ''))
-        parts.append(f"""        <div class="mail-item mail-info" id="{mid}">
+        block_btn = (f'<button class="archive-btn" title="今後この送信元を非表示にする" '
+                     f'onclick="event.stopPropagation();blockSenderDomain(\'{domain}\')">🚫</button>'
+                     if allow_block and domain else '')
+        parts.append(f"""        <div class="mail-item mail-info" id="{mid}" data-domain="{domain}">
           <div class="mail-header" onclick="toggleDetail('{mid}')">
             <div class="mail-title">{icon} {subj}</div>
+            {block_btn}
             <button class="archive-btn" onclick="event.stopPropagation();archiveItem('{mid}')">✓</button>
           </div>
           <div class="mail-sub">{date}　{frm}</div>
@@ -438,8 +478,15 @@ def generate_kpi_section(trials, shiryo_list, setsumeikai_list, n_training, kpi_
                 if studio:
                     name += he(f'／{studio}')
                 utm_source = _extract_utm_source(item)
-                if 'google' in utm_source.lower():
-                    name += ' <span class="badge badge-blue" style="font-size:9px;padding:1px 5px;">Google</span>'
+                if utm_source:
+                    source_labels = {
+                        'google': 'Google', 'google-ads': 'Google広告', 'googleads': 'Google広告',
+                        'instagram': 'Instagram', 'facebook': 'Facebook', 'ig': 'Instagram',
+                        'line': 'LINE', 'yahoo': 'Yahoo', 'email': 'メール', 'mail': 'メール',
+                        'direct': '直接', 'organic': '自然検索', 'referral': '紹介サイト',
+                    }
+                    label = source_labels.get(utm_source.lower(), utm_source)
+                    name += f' <span class="badge badge-blue" style="font-size:9px;padding:1px 5px;">{he(label)}</span>'
             ds   = he(_extract_date_short(item))
             detail = _mail_card(item)
             parts.append(
@@ -665,10 +712,52 @@ async function loadApiCost(){
     if(el)el.textContent=`API概算利用料：$${total.toFixed(4)}（直近${log.length}回・目安値。正確な金額はconsole.anthropic.comで確認）`;
   }catch(e){}
 }
+const AB_KEY='ks_agniyoga_ad_blocklist_v1';
+const GH_BLOCKLIST='agniyoga_ad_blocklist.json';
+function _gab(){try{return JSON.parse(localStorage.getItem(AB_KEY)||'[]');}catch{return[];}}
+function _sab(list){localStorage.setItem(AB_KEY,JSON.stringify(list));}
+async function ghGetBlocklist(){try{const r=await fetch(`https://api.github.com/repos/${GH_REPO}/contents/${GH_BLOCKLIST}`,{headers:{'Authorization':`token ${GH_TOKEN}`,'Accept':'application/vnd.github.v3+json'}});if(!r.ok)return{list:[],sha:null};const d=await r.json();return{list:JSON.parse(decodeURIComponent(escape(atob(d.content.replace(/\\n/g,''))))),sha:d.sha};}catch(e){return{list:[],sha:null};}}
+async function ghPutBlocklist(list,sha){try{const b=btoa(unescape(encodeURIComponent(JSON.stringify(list))));const body={message:'update blocklist',content:b};if(sha)body.sha=sha;await fetch(`https://api.github.com/repos/${GH_REPO}/contents/${GH_BLOCKLIST}`,{method:'PUT',headers:{'Authorization':`token ${GH_TOKEN}`,'Content-Type':'application/json','Accept':'application/vnd.github.v3+json'},body:JSON.stringify(body)});}catch(e){}}
+function applyBlocklist(){
+  const list=_gab();
+  document.querySelectorAll('[id^="gmad-"]').forEach(function(el){
+    const d=el.getAttribute('data-domain');
+    el.style.display=(d&&list.includes(d))?'none':'';
+  });
+  renderBlocklistUI();
+}
+function blockSenderDomain(domain){
+  if(!domain)return;
+  if(!confirm(`今後「${domain}」からのメールを非表示にしますか？`))return;
+  const list=_gab();
+  if(!list.includes(domain)){list.push(domain);_sab(list);}
+  applyBlocklist();
+  if(GH_TOKEN){ghGetBlocklist().then(function(r){const merged=Array.from(new Set(r.list.concat(_gab())));_sab(merged);ghPutBlocklist(merged,r.sha);});}
+}
+function unblockSenderDomain(domain){
+  const list=_gab().filter(function(d){return d!==domain;});
+  _sab(list);
+  applyBlocklist();
+  if(GH_TOKEN){ghGetBlocklist().then(function(r){const merged=r.list.filter(function(d){return d!==domain;});ghPutBlocklist(merged,r.sha);});}
+}
+function renderBlocklistUI(){
+  const el=document.getElementById('blocklist-list');if(!el)return;
+  const wrap=document.getElementById('blocklist-card');
+  const list=_gab();
+  if(wrap)wrap.style.display=list.length?'':'none';
+  el.innerHTML=list.map(function(d){return `<div class="routine-item"><div class="routine-name">${_esc(d)}</div><div class="routine-freq"><button class="rt-del-btn" onclick="unblockSenderDomain('${_esc(d)}')" title="また表示する">↩</button></div></div>`;}).join('');
+}
 function mergeDone(a,b){const m={};[...a,...b].forEach(function(i){if(!m[i.id]||i.completedAt>m[i.id].completedAt)m[i.id]=i;});return Object.values(m);}
 function fmtDoneTime(ts){
   var d=new Date(ts);
   return (d.getMonth()+1)+'/'+d.getDate()+' '+String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');
+}
+function addDoneBadge(el,completedAt){
+  var titleEl=el.querySelector('.mail-title,.task-title,.adhoc-text,.routine-name');
+  if(!titleEl)return;
+  var badge=titleEl.querySelector('.done-time-badge');
+  if(!badge){badge=document.createElement('span');badge.className='done-time-badge';titleEl.appendChild(badge);}
+  badge.textContent=' ✓完了 '+fmtDoneTime(completedAt);
 }
 function applyDoneState(list){
   var now=Date.now(),H12=12*3600*1000,H7D=7*24*3600*1000;
@@ -679,12 +768,7 @@ function applyDoneState(list){
     el.classList.remove('archived');el.style.display='';
     if(now-item.completedAt<H12){
       el.classList.add('archived');
-      var titleEl=el.querySelector('.mail-title,.task-title,.adhoc-text,.routine-name');
-      if(titleEl){
-        var badge=titleEl.querySelector('.done-time-badge');
-        if(!badge){badge=document.createElement('span');badge.className='done-time-badge';titleEl.appendChild(badge);}
-        badge.textContent=' ✓完了 '+fmtDoneTime(item.completedAt);
-      }
+      addDoneBadge(el,item.completedAt);
     }else{
       el.style.display='none';
     }
@@ -761,6 +845,7 @@ function archiveItem(id){
   const item={id,text,completedAt:Date.now()};
   const list=_gd();if(!list.find(i=>i.id===id)){list.push(item);_sd(list);}
   el.classList.add('archived');
+  addDoneBadge(el,item.completedAt);
   if(GH_TOKEN){ghGet().then(function(r){const merged=mergeDone(_gd(),r.list);_sd(merged);ghPut(merged,r.sha);});}
 }
 function toggleDetail(id){const el=document.getElementById(id);if(el)el.classList.toggle('open');}
@@ -876,100 +961,15 @@ function toggleDetail(id){const el=document.getElementById(id);if(el)el.classLis
   <div class="card">
 ###AGNIYOGA_AD_GMAIL###
   </div>
+  <div class="card full" id="blocklist-card" style="padding:12px 16px;display:none;margin-top:8px;">
+    <div class="card-title" style="margin-bottom:6px;">🚫 今後表示しない送信元（agniyoga.ad）</div>
+    <div id="blocklist-list"></div>
+  </div>
 
   <!-- ═══ 近日の予定 ═══ -->
-  <div class="section-head">📅 近日の予定（カレンダーより）</div>
+  <div class="section-head">📅 近日の予定（Googleカレンダー連携）<span style="font-size:10px;font-weight:normal;margin-left:8px;color:var(--sub);">###CALENDAR_FETCHED###</span></div>
   <div class="grid">
-    <div class="card">
-      <div class="card-title">🗓 7月</div>
-      <div class="schedule-item">
-        <div class="schedule-date today">7/3（金）</div>
-        <div class="schedule-content">wmtg（AGNIYOGA社内）14:00〜 <span class="badge badge-blue schedule-tag">仕事</span></div>
-      </div>
-      <div class="schedule-item">
-        <div class="schedule-date">7/7（火）</div>
-        <div class="schedule-content">✈️ OZ101 成田T1 12:50→仁川 15:25（ソウル往路）<span class="badge badge-gray schedule-tag">旅行</span></div>
-      </div>
-      <div class="schedule-item">
-        <div class="schedule-date">7/9（木）</div>
-        <div class="schedule-content">✈️ OZ102 仁川T2 08:25→成田T1 10:50（ソウル復路）<span class="badge badge-gray schedule-tag">旅行</span></div>
-      </div>
-      <div class="schedule-item">
-        <div class="schedule-date">7/9（木）</div>
-        <div class="schedule-content">税金支払い（所得税・住民税） <span class="badge badge-orange schedule-tag">ルーチン</span>　／　wmtg 14:00〜 <span class="badge badge-blue schedule-tag">仕事</span><span style="font-size:10px;color:var(--sub);">（今週のみ木曜）</span></div>
-      </div>
-      <div class="schedule-item">
-        <div class="schedule-date">7/10（金）</div>
-        <div class="schedule-content">広告MTG 13:00〜 <span class="badge badge-blue schedule-tag">仕事</span>　／　クレ対応 <span class="badge badge-orange schedule-tag">ルーチン</span></div>
-      </div>
-      <div class="schedule-item">
-        <div class="schedule-date">7/10（金）</div>
-        <div class="schedule-content">CB/AMEX ダウンロード・クレジット精算 <span class="badge badge-orange schedule-tag">ルーチン</span><span style="font-size:10px;color:var(--sub);">（1,4,7,10月）</span></div>
-      </div>
-      <div class="schedule-item">
-        <div class="schedule-date">7/17（金）</div>
-        <div class="schedule-content">wmtg（AGNIYOGA社内）14:00〜 <span class="badge badge-blue schedule-tag">仕事</span></div>
-      </div>
-      <div class="schedule-item">
-        <div class="schedule-date">7/24（金）</div>
-        <div class="schedule-content">wmtg（AGNIYOGA社内）14:00〜 <span class="badge badge-blue schedule-tag">仕事</span></div>
-      </div>
-      <div class="schedule-item">
-        <div class="schedule-date">7/31（金）</div>
-        <div class="schedule-content">wmtg（AGNIYOGA社内）14:00〜 <span class="badge badge-blue schedule-tag">仕事</span></div>
-      </div>
-      <div class="schedule-item">
-        <div class="schedule-date">7/11（土）</div>
-        <div class="schedule-content">リボーン＠しらこばと運動第2（16:00〜18:00）<span class="badge badge-green schedule-tag">サッカー</span></div>
-      </div>
-      <div class="schedule-item">
-        <div class="schedule-date">7/16（木）</div>
-        <div class="schedule-content">裁判・弁論準備 15:00〜 <span class="badge badge-red schedule-tag">法務</span></div>
-      </div>
-      <div class="schedule-item">
-        <div class="schedule-date">7/19（土）</div>
-        <div class="schedule-content">リボーン＠舎人公園（8:45〜12:00）<span class="badge badge-green schedule-tag">サッカー</span></div>
-      </div>
-      <div class="schedule-item">
-        <div class="schedule-date">7/24（木）</div>
-        <div class="schedule-content">静岡 17:30〜 <span class="badge badge-purple schedule-tag">私用</span></div>
-      </div>
-      <div class="schedule-item">
-        <div class="schedule-date">7/25（金）</div>
-        <div class="schedule-content">🎓 OC予約（筑波AC）早急！ <span class="badge badge-teal schedule-tag">受験</span></div>
-      </div>
-    </div>
-    <div class="card">
-      <div class="card-title">🗓 8月</div>
-      <div class="schedule-item">
-        <div class="schedule-date">8/1（土）</div>
-        <div class="schedule-content">リボーン＠しらこばと（10:00〜12:00）<span class="badge badge-green schedule-tag">サッカー</span>　審判　水元40（18:00〜20:30）</div>
-      </div>
-      <div class="schedule-item">
-        <div class="schedule-date">8/3（月）</div>
-        <div class="schedule-content"><strong>⚠️ AWS Savings Plans 更新</strong> 14:00 <span class="badge badge-red schedule-tag">IT重要</span></div>
-      </div>
-      <div class="schedule-item">
-        <div class="schedule-date">8/5（水）頃</div>
-        <div class="schedule-content">月次定期業務（出勤簿・社保・税金・ZIP精算・有給管理） <span class="badge badge-orange schedule-tag">ルーチン</span></div>
-      </div>
-      <div class="schedule-item">
-        <div class="schedule-date">8/9（土）</div>
-        <div class="schedule-content">水元50＠にいじゅくみらい（18:00〜20:00）<span class="badge badge-green schedule-tag">サッカー</span>　税金支払い <span class="badge badge-orange schedule-tag">ルーチン</span></div>
-      </div>
-      <div class="schedule-item">
-        <div class="schedule-date">8/14（金）</div>
-        <div class="schedule-content">広告MTG 13:00〜 <span class="badge badge-blue schedule-tag">仕事</span></div>
-      </div>
-      <div class="schedule-item">
-        <div class="schedule-date">8/20（木）</div>
-        <div class="schedule-content">AWS SavingPlan 作り直し 10:00 <span class="badge badge-red schedule-tag">IT重要</span></div>
-      </div>
-      <div class="schedule-item">
-        <div class="schedule-date">8/22（土）〜</div>
-        <div class="schedule-content">🎓 筑波AC出願登録開始（〜9/3） <span class="badge badge-teal schedule-tag">受験</span></div>
-      </div>
-    </div>
+###SCHEDULE_SECTION###
   </div>
 
   <!-- ═══ 息子の大学受験 ═══ -->
@@ -1108,6 +1108,8 @@ function toggleDetail(id){const el=document.getElementById(id);if(el)el.classLis
   applyBuiltinRoutineDismissed();
   renderCustomRoutines();renderCustomAdhoc();renderTrash();
   loadApiCost();
+  applyBlocklist();
+  if(GH_TOKEN){ghGetBlocklist().then(function(r){_sab(r.list);applyBlocklist();});}
   // GitHubと同期して再適用
   if(GH_TOKEN){ghGet().then(function(r){const merged=mergeDone(_gd(),r.list);_sd(merged);applyDoneState(merged);renderCustomAdhoc();const ids=function(l){return l.map(function(i){return i.id;}).sort().join(',');};if(ids(merged)!==ids(r.list))ghPut(merged,r.sha);});}
 })();
@@ -1456,16 +1458,36 @@ try:
 except Exception as e:
     print(f"agniyoga.ad Gmail JSON読み込みエラー: {e}")
 
+# 2d) Googleカレンダー（kanesaka.agni@gmail.com プライマリ）
+calendar_events = []
+calendar_fetched_at = ''
+try:
+    import subprocess as _sp2
+    _calendar_script = (os.path.join(PROJECT_DIR, '.github', 'scripts', 'check_calendar.py')
+                         if CI_MODE else os.path.join(INPUT_DIR, 'check_calendar.py'))
+    _sp2.run([sys.executable, _calendar_script], check=True, capture_output=True)
+except Exception as e:
+    print(f"カレンダー取得エラー（スキップ）: {e}")
+try:
+    with open(CALENDAR_FILE, encoding='utf-8') as f:
+        cal = json.load(f)
+    calendar_events = cal.get('events', [])
+    calendar_fetched_at = cal.get('fetched_at', '')
+    print(f"カレンダー予定: {len(calendar_events)}件")
+except Exception as e:
+    print(f"カレンダーJSON読み込みエラー: {e}")
+
 # 3) Generate dynamic sections
 mail_html        = generate_mail_section(judgment.get('urgent_mails', []))
 gmail_html       = generate_kanesaka_gmail_section(kanesaka_gmail_mails)
 agniyoga_ad_gmail_html = generate_kanesaka_gmail_section(
-    agniyoga_ad_gmail_mails, id_prefix='gmad', default_to='agniyoga.ad@gmail.com')
+    agniyoga_ad_gmail_mails, id_prefix='gmad', default_to='agniyoga.ad@gmail.com', allow_block=True)
 kpi_html         = generate_kpi_section(
     trials, shiryo_list, setsumeikai_list, n_training,
     kpi_note, today, month
 )
 routine_html = generate_routine_tasks(now.date())
+schedule_html = generate_schedule_section(calendar_events, now.date())
 
 # 4) Assemble Dashboard HTML
 dashboard_html = (DASHBOARD_TEMPLATE
@@ -1474,6 +1496,8 @@ dashboard_html = (DASHBOARD_TEMPLATE
     .replace('###GMAIL_FETCHED###', f'取得: {gmail_fetched_at}')
     .replace('###AGNIYOGA_AD_GMAIL###', agniyoga_ad_gmail_html)
     .replace('###AGNIYOGA_AD_GMAIL_FETCHED###', f'取得: {agniyoga_ad_gmail_fetched_at}')
+    .replace('###SCHEDULE_SECTION###', schedule_html)
+    .replace('###CALENDAR_FETCHED###', f'取得: {calendar_fetched_at}')
     .replace('###KPI_SECTION###', kpi_html)
     .replace('###ROUTINE_TASKS###', routine_html)
     .replace('###MONTH###', f'{month}月')
