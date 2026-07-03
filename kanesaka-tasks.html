@@ -86,12 +86,13 @@ async function unlock() {
       { name:'PBKDF2', salt:b64ToBuffer(SALT), iterations:ITER, hash:'SHA-256' },
       keyMat, { name:'AES-CBC', length:256 }, false, ['decrypt']
     );
-    // ArrayBufferを直接Blobに渡す（TextDecoder/string経由不要、UTF-8保持）
     const decrypted = await crypto.subtle.decrypt(
       { name:'AES-CBC', iv:b64ToBuffer(IV) }, key, b64ToBuffer(CT)
     );
-    const blob = new Blob([decrypted], {type:'text/html;charset=utf-8'});
-    window.location.replace(URL.createObjectURL(blob));
+    const html = new TextDecoder('utf-8').decode(decrypted);
+    document.open();
+    document.write(html);
+    document.close();
   } catch(e) {
     st.className = '';
     st.textContent = '\u30D1\u30B9\u30EF\u30FC\u30C9\u304C\u9055\u3044\u307E\u3059';
