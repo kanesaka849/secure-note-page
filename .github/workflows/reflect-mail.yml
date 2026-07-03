@@ -32,6 +32,7 @@ jobs:
           GMAIL_CLIENT_ID: ${{ secrets.GMAIL_CLIENT_ID }}
           GMAIL_CLIENT_SECRET: ${{ secrets.GMAIL_CLIENT_SECRET }}
           KANESAKA_GMAIL_REFRESH_TOKEN: ${{ secrets.KANESAKA_GMAIL_REFRESH_TOKEN }}
+          AGNIYOGA_AD_GMAIL_REFRESH_TOKEN: ${{ secrets.AGNIYOGA_AD_GMAIL_REFRESH_TOKEN }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: python .github/scripts/ci_fetch_and_judge.py
 
@@ -41,8 +42,6 @@ jobs:
           DASHBOARD_SYNC_TOKEN: ${{ secrets.DASHBOARD_SYNC_TOKEN }}
           GMAIL_CLIENT_ID: ${{ secrets.GMAIL_CLIENT_ID }}
           GMAIL_CLIENT_SECRET: ${{ secrets.GMAIL_CLIENT_SECRET }}
-          KANESAKA_GMAIL_REFRESH_TOKEN: ${{ secrets.KANESAKA_GMAIL_REFRESH_TOKEN }}
-          AGNIYOGA_AD_GMAIL_REFRESH_TOKEN: ${{ secrets.AGNIYOGA_AD_GMAIL_REFRESH_TOKEN }}
           KANESAKA_CALENDAR_REFRESH_TOKEN: ${{ secrets.KANESAKA_CALENDAR_REFRESH_TOKEN }}
         run: python .github/scripts/rebuild_all.py
 

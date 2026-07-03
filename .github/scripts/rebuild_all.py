@@ -33,8 +33,7 @@ REPO_URL      = "https://github.com/kanesaka849/secure-note-page.git"
 JUDGMENT_FILE      = os.path.join(INPUT_DIR, "mail_judgment.json")
 TRIAL_FILE         = os.path.join(INPUT_DIR, "mail_trial_agniyoga.json")
 SCHOOL_FILE        = os.path.join(INPUT_DIR, "mail_school_agniyoga.json")
-KANESAKA_GMAIL_FILE = os.path.join(INPUT_DIR, "mail_kanesaka_gmail.json")
-AGNIYOGA_AD_GMAIL_FILE = os.path.join(INPUT_DIR, "mail_agniyoga_ad_gmail.json")
+UNIFIED_MAIL_FILE = os.path.join(INPUT_DIR, "mail_unified.json")
 CALENDAR_FILE = os.path.join(INPUT_DIR, "calendar_events.json")
 
 OUT_MAIN  = os.path.join(OUTPUT_DIR, "kanesaka_tasks_secure.html" if not CI_MODE else "kanesaka-tasks.html")
@@ -359,55 +358,46 @@ def generate_schedule_section(events, today_dt):
 def he(s):
     return s.replace('&','&amp;').replace('<','&lt;').replace('>','&gt;').replace('"','&quot;').replace('\n','<br>')
 
-def generate_mail_section(urgent_mails):
-    parts = []
-    for m in urgent_mails:
-        cls  = 'mail-urgent' if m.get('type') == 'urgent' else 'mail-info'
-        mid  = m['id']
-        icon = m.get('icon', '')
-        parts.append(f"""        <div class="mail-item {cls}" id="{mid}">
-          <div class="mail-header" onclick="toggleDetail('{mid}')">
-            <div class="mail-title">{icon} {he(m.get('title',''))}</div>
-            <button class="archive-btn" onclick="event.stopPropagation();archiveItem('{mid}')">✓</button>
-          </div>
-          <div class="mail-sub">{he(m.get('sub',''))}</div>
-          {f'<div class="mail-to">宛先: {he(m.get("to",""))}</div>' if m.get('to') else ''}
-          <div class="mail-detail"><div class="detail-from">{he(m.get('from_info',''))}</div><div class="detail-body">{he(m.get('detail',''))}</div></div>
-        </div>""")
-    return '\n'.join(parts)
+ACCOUNT_LABELS = {
+    'kanesaka_activia': ('Activia', 'acct-activia'),
+    'kanesaka_agni': ('個人', 'acct-kanesaka-agni'),
+    'agniyoga_ad': ('広告用', 'acct-agniyoga-ad'),
+}
+CATEGORY_CLASS = {
+    'action': 'mail-urgent',
+    'info': 'mail-info',
+    'unclear': 'mail-unclear',
+    'maybe_spam': 'mail-maybe-spam',
+}
+CATEGORY_ORDER = {'action': 0, 'info': 1, 'unclear': 2, 'maybe_spam': 3}
 
-def generate_kanesaka_gmail_section(mails, id_prefix='gm', default_to='kanesaka.agni@gmail.com', block_fn=None):
-    if not mails:
-        return '<div style="font-size:12px;color:var(--sub);padding:6px 0;">未読なし</div>'
-    domain_icons = {
-        'mamail.jp': '🏫', 'chiba-c.ed.jp': '⚽',
-        'bizcomfort.jp': '🏢', 'timerex.net': '📅',
-        'github.com': '🐙', 'mail.rakuten-bank.co.jp': '🏦',
-        'cardservice.co.jp': '💳', '0101.co.jp': '🏬',
-    }
+def generate_unified_mail_section(mails, filter_categories=None):
+    """全アカウント統合のメール一覧をレンダリングする。
+    filter_categoriesを指定すると該当カテゴリのみ（ファーストビューの「要対応」抜粋等に使用）。"""
+    items = mails
+    if filter_categories:
+        items = [m for m in items if m.get('category') in filter_categories]
+    if not items:
+        return '<div style="font-size:12px;color:var(--sub);padding:6px 0;">該当メールなし</div>'
+    items = sorted(items, key=lambda m: CATEGORY_ORDER.get(m.get('category'), 9))
     parts = []
-    for m in mails:
-        icon = domain_icons.get(m.get('domain',''), '📧')
-        mid  = f'{id_prefix}-' + m['id']
+    for m in items:
+        mid = m['id']
+        cls = CATEGORY_CLASS.get(m.get('category'), 'mail-info')
+        acct_label, acct_cls = ACCOUNT_LABELS.get(m.get('account', ''), ('?', ''))
         domain = he(m.get('domain', ''))
-        subj = he(m.get('subject', '（件名なし）'))
-        frm  = he(m.get('from', ''))
-        date = he(m.get('date', ''))
-        full_body = he(m.get('body') or m.get('snippet', ''))
+        account = he(m.get('account', ''))
         block_btn = (f'<button class="archive-btn" title="今後この送信元を非表示にする" '
-                     f'onclick="event.stopPropagation();{block_fn}(\'{domain}\')">🚫</button>'
-                     if block_fn and domain else '')
-        parts.append(f"""        <div class="mail-item mail-info" id="{mid}" data-domain="{domain}">
+                     f'onclick="event.stopPropagation();blockUnifiedSender(\'{account}\',\'{domain}\')">🚫</button>'
+                     if domain else '')
+        parts.append(f"""        <div class="mail-item {cls}" id="{mid}" data-domain="{domain}" data-account="{account}">
           <div class="mail-header" onclick="toggleDetail('{mid}')">
-            <div class="mail-title">{icon} {subj}</div>
+            <div class="mail-title"><span class="acct-badge {acct_cls}">{acct_label}</span>{m.get('icon','')} {he(m.get('title',''))}</div>
             {block_btn}
             <button class="archive-btn" onclick="event.stopPropagation();archiveItem('{mid}')">✓</button>
           </div>
-          <div class="mail-sub">{date}　{frm}</div>
-          <div class="mail-detail">
-            <div class="detail-from">宛先: {he(m.get('to', default_to))}</div>
-            <div class="detail-body">{full_body}</div>
-          </div>
+          <div class="mail-sub">{he(m.get('sub',''))}</div>
+          <div class="mail-detail"><div class="detail-from">{he(m.get('from_info',''))}</div><div class="detail-body">{he(m.get('detail',''))}</div></div>
         </div>""")
     return '\n'.join(parts)
 
@@ -559,9 +549,15 @@ DASHBOARD_TEMPLATE = """<!DOCTYPE html>
   .mail-item { padding: 8px 10px; border-radius: 6px; margin-bottom: 6px; border-left: 4px solid; }
   .mail-urgent { background: #ffeaa7; border-color: #e17055; }
   .mail-info   { background: #e8f4fd; border-color: var(--blue); }
+  .mail-unclear { background: #f3e8ff; border-color: #a78bfa; }
+  .mail-maybe-spam { background: #fefce8; border-color: #eab308; border-left-style: dashed; }
   .mail-item .mail-title { font-weight: bold; font-size: 12px; line-height: 1.3; transition: color 0.15s; }
   .mail-item .mail-sub   { font-size: 11px; color: var(--sub); margin-top: 2px; line-height: 1.4; }
   .mail-to { font-size: 10px; color: var(--sub); margin-top: 1px; }
+  .acct-badge { display: inline-block; font-size: 9px; font-weight: bold; padding: 1px 5px; border-radius: 8px; margin-right: 4px; vertical-align: middle; }
+  .acct-activia { background: #dbeafe; color: #1d4ed8; }
+  .acct-kanesaka-agni { background: #dcfce7; color: #15803d; }
+  .acct-agniyoga-ad { background: #f3e8ff; color: #7e22ce; }
   .mail-detail { display: none; max-height: 260px; overflow-y: auto; font-size: 11px; line-height: 1.7; margin-top: 8px; padding: 8px 10px; border: 1px solid rgba(0,0,0,0.12); border-radius: 6px; background: #f8fafc; color: var(--text); }
   .mail-item.open .mail-detail { display: block; }
   .mail-detail .detail-from { color: var(--sub); margin-bottom: 4px; }
@@ -712,82 +708,50 @@ async function loadApiCost(){
     if(el)el.textContent=`API概算利用料：$${total.toFixed(4)}（直近${log.length}回・目安値。正確な金額はconsole.anthropic.comで確認）`;
   }catch(e){}
 }
-const AB_KEY='ks_agniyoga_ad_blocklist_v1';
-const GH_BLOCKLIST='agniyoga_ad_blocklist.json';
-function _gab(){try{return JSON.parse(localStorage.getItem(AB_KEY)||'[]');}catch{return[];}}
-function _sab(list){localStorage.setItem(AB_KEY,JSON.stringify(list));}
-async function ghGetBlocklist(){try{const r=await fetch(`https://api.github.com/repos/${GH_REPO}/contents/${GH_BLOCKLIST}`,{headers:{'Authorization':`token ${GH_TOKEN}`,'Accept':'application/vnd.github.v3+json'}});if(!r.ok)return{list:[],sha:null};const d=await r.json();return{list:JSON.parse(decodeURIComponent(escape(atob(d.content.replace(/\\n/g,''))))),sha:d.sha};}catch(e){return{list:[],sha:null};}}
-async function ghPutBlocklist(list,sha){try{const b=btoa(unescape(encodeURIComponent(JSON.stringify(list))));const body={message:'update blocklist',content:b};if(sha)body.sha=sha;await fetch(`https://api.github.com/repos/${GH_REPO}/contents/${GH_BLOCKLIST}`,{method:'PUT',headers:{'Authorization':`token ${GH_TOKEN}`,'Content-Type':'application/json','Accept':'application/vnd.github.v3+json'},body:JSON.stringify(body)});}catch(e){}}
-function applyBlocklist(){
-  const list=_gab();
-  document.querySelectorAll('[id^="gmad-"]').forEach(function(el){
-    const d=el.getAttribute('data-domain');
-    el.style.display=(d&&list.includes(d))?'none':'';
-  });
-  renderBlocklistUI();
-}
-function blockSenderDomain(domain){
-  if(!domain)return;
-  if(!confirm(`今後「${domain}」からのメールを非表示にしますか？`))return;
-  const list=_gab();
-  if(!list.includes(domain)){list.push(domain);_sab(list);}
-  applyBlocklist();
-  if(GH_TOKEN){ghGetBlocklist().then(function(r){const merged=Array.from(new Set(r.list.concat(_gab())));_sab(merged);ghPutBlocklist(merged,r.sha);});}
-}
-function unblockSenderDomain(domain){
-  const list=_gab().filter(function(d){return d!==domain;});
-  _sab(list);
-  applyBlocklist();
-  if(GH_TOKEN){ghGetBlocklist().then(function(r){const merged=r.list.filter(function(d){return d!==domain;});ghPutBlocklist(merged,r.sha);});}
-}
-function renderBlocklistUI(){
-  const el=document.getElementById('blocklist-list');if(!el)return;
-  const wrap=document.getElementById('blocklist-card');
-  const list=_gab();
-  if(wrap)wrap.style.display=list.length?'':'none';
-  el.innerHTML=list.map(function(d){return `<div class="routine-item"><div class="routine-name">${_esc(d)}</div><div class="routine-freq"><button class="rt-del-btn" onclick="unblockSenderDomain('${_esc(d)}')" title="また表示する">↩</button></div></div>`;}).join('');
-}
-// kanesaka.agni向けの手動show/hideは、AIが使うsender_rules.json自体を直接書き換える
-// （AIの自動学習と同じ場所に人間の判断も記録し、次回のメール反映にも反映されるようにする）
+// 統合メールの手動show/hideは、AIが使うsender_rules.json自体を直接書き換える
+// （AIの自動学習と同じ場所に人間の判断も記録し、次回の「メール反映」にも一貫して反映される）
 const GH_SENDER_RULES='sender_rules.json';
-async function ghGetSenderRules(){try{const r=await fetch(`https://api.github.com/repos/${GH_REPO}/contents/${GH_SENDER_RULES}`,{headers:{'Authorization':`token ${GH_TOKEN}`,'Accept':'application/vnd.github.v3+json'}});if(!r.ok)return{rules:{always_show:[],always_hide:[]},sha:null};const d=await r.json();return{rules:JSON.parse(decodeURIComponent(escape(atob(d.content.replace(/\\n/g,''))))),sha:d.sha};}catch(e){return{rules:{always_show:[],always_hide:[]},sha:null};}}
+async function ghGetSenderRules(){try{const r=await fetch(`https://api.github.com/repos/${GH_REPO}/contents/${GH_SENDER_RULES}`,{headers:{'Authorization':`token ${GH_TOKEN}`,'Accept':'application/vnd.github.v3+json'}});if(!r.ok)return{rules:{},sha:null};const d=await r.json();return{rules:JSON.parse(decodeURIComponent(escape(atob(d.content.replace(/\\n/g,''))))),sha:d.sha};}catch(e){return{rules:{},sha:null};}}
 async function ghPutSenderRules(rules,sha){try{const b=btoa(unescape(encodeURIComponent(JSON.stringify(rules))));const body={message:'update sender rules (manual)',content:b};if(sha)body.sha=sha;await fetch(`https://api.github.com/repos/${GH_REPO}/contents/${GH_SENDER_RULES}`,{method:'PUT',headers:{'Authorization':`token ${GH_TOKEN}`,'Content-Type':'application/json','Accept':'application/vnd.github.v3+json'},body:JSON.stringify(body)});}catch(e){}}
-function _gkb(){try{return JSON.parse(localStorage.getItem('ks_kanesaka_hidden_v1')||'[]');}catch{return[];}}
-function _skb(list){localStorage.setItem('ks_kanesaka_hidden_v1',JSON.stringify(list));}
-function applyKanesakaBlocklist(){
-  const list=_gkb();
-  document.querySelectorAll('[id^="gm-"]').forEach(function(el){
-    const d=el.getAttribute('data-domain');
-    el.style.display=(d&&list.includes(d))?'none':'';
+function _gub(){try{return JSON.parse(localStorage.getItem('ks_unified_hidden_v1')||'[]');}catch{return[];}}  // ["account|domain", ...]
+function _sub(list){localStorage.setItem('ks_unified_hidden_v1',JSON.stringify(list));}
+function applyUnifiedBlocklist(){
+  const list=_gub();
+  document.querySelectorAll('.mail-item[data-account]').forEach(function(el){
+    const key=el.getAttribute('data-account')+'|'+el.getAttribute('data-domain');
+    el.style.display=(el.getAttribute('data-domain')&&list.includes(key))?'none':'';
   });
-  renderKanesakaBlocklistUI();
+  renderUnifiedBlocklistUI();
 }
-function blockKanesakaSenderDomain(domain){
+function blockUnifiedSender(account,domain){
   if(!domain)return;
-  if(!confirm(`今後「${domain}」からのメールを非表示にしますか？（次回のメール反映からもAIが自動でhide扱いします）`))return;
-  const local=_gkb();if(!local.includes(domain)){local.push(domain);_skb(local);}
-  applyKanesakaBlocklist();
+  if(!confirm(`今後「${domain}」（${account}）からのメールを非表示にしますか？（次回のメール反映からもAIが自動でhide扱いします）`))return;
+  const key=account+'|'+domain;
+  const local=_gub();if(!local.includes(key)){local.push(key);_sub(local);}
+  applyUnifiedBlocklist();
   if(GH_TOKEN){ghGetSenderRules().then(function(r){
-    const rules=r.rules;rules.always_show=(rules.always_show||[]).filter(function(d){return d!==domain;});
-    if(!(rules.always_hide||[]).includes(domain)){rules.always_hide=(rules.always_hide||[]).concat([domain]);}
+    const rules=r.rules;rules[account]=rules[account]||{};rules[account][domain]='hide';
     ghPutSenderRules(rules,r.sha);
   });}
 }
-function unblockKanesakaSenderDomain(domain){
-  const local=_gkb().filter(function(d){return d!==domain;});_skb(local);
-  applyKanesakaBlocklist();
+function unblockUnifiedSender(account,domain){
+  const key=account+'|'+domain;
+  const local=_gub().filter(function(k){return k!==key;});_sub(local);
+  applyUnifiedBlocklist();
   if(GH_TOKEN){ghGetSenderRules().then(function(r){
-    const rules=r.rules;rules.always_hide=(rules.always_hide||[]).filter(function(d){return d!==domain;});
-    if(!(rules.always_show||[]).includes(domain)){rules.always_show=(rules.always_show||[]).concat([domain]);}
+    const rules=r.rules;if(rules[account])delete rules[account][domain];
     ghPutSenderRules(rules,r.sha);
   });}
 }
-function renderKanesakaBlocklistUI(){
-  const el=document.getElementById('kanesaka-blocklist-list');if(!el)return;
-  const wrap=document.getElementById('kanesaka-blocklist-card');
-  const list=_gkb();
+function renderUnifiedBlocklistUI(){
+  const el=document.getElementById('unified-blocklist-list');if(!el)return;
+  const wrap=document.getElementById('unified-blocklist-card');
+  const list=_gub();
   if(wrap)wrap.style.display=list.length?'':'none';
-  el.innerHTML=list.map(function(d){return `<div class="routine-item"><div class="routine-name">${_esc(d)}</div><div class="routine-freq"><button class="rt-del-btn" onclick="unblockKanesakaSenderDomain('${_esc(d)}')" title="また表示する">↩</button></div></div>`;}).join('');
+  el.innerHTML=list.map(function(key){
+    const parts=key.split('|'),account=parts[0],domain=parts.slice(1).join('|');
+    return `<div class="routine-item"><div class="routine-name">${_esc(domain)}<span style="color:var(--sub);font-size:10px;"> （${_esc(account)}）</span></div><div class="routine-freq"><button class="rt-del-btn" onclick="unblockUnifiedSender('${_esc(account)}','${_esc(domain)}')" title="また表示する">↩</button></div></div>`;
+  }).join('');
 }
 function mergeDone(a,b){const m={};[...a,...b].forEach(function(i){if(!m[i.id]||i.completedAt>m[i.id].completedAt)m[i.id]=i;});return Object.values(m);}
 function fmtDoneTime(ts){
@@ -908,13 +872,13 @@ function toggleDetail(id){const el=document.getElementById(id);if(el)el.classLis
   <!-- ═══ ファーストビュー 3分割 ═══ -->
   <div class="first-view">
 
-    <!-- LEFT: 要対応メール -->
+    <!-- LEFT: 要対応メール（統合メール一覧のうち①要対応のみ抜粋） -->
     <div class="fv-col">
       <div class="section-head">📬 要対応メール</div>
       <div class="card scroll-card">
-###MAIL_SECTION###
+###ACTION_MAIL_SECTION###
         <div class="mail-all-link">
-          <a href="kanesaka-mail-all.html">📬 全件表示（整理済みメール一覧）→</a>
+          <a href="#unified-mail">📬 全メール一覧（AI仕分け）を見る↓</a>
         </div>
       </div>
     </div>
@@ -992,24 +956,14 @@ function toggleDetail(id){const el=document.getElementById(id);if(el)el.classLis
 
   </div><!-- /first-view -->
 
-  <!-- ═══ 個人メール（未読） ═══ -->
-  <div class="section-head">📨 個人メール・未読（kanesaka.agni@gmail.com）<span style="font-size:10px;font-weight:normal;margin-left:8px;color:var(--sub);">###GMAIL_FETCHED###</span></div>
+  <!-- ═══ 全メール一覧（AI仕分け・全アカウント統合） ═══ -->
+  <div class="section-head" id="unified-mail">📬 全メール一覧（AI仕分け・全アカウント統合）<span style="font-size:10px;font-weight:normal;margin-left:8px;color:var(--sub);">###UNIFIED_MAIL_FETCHED###</span></div>
   <div class="card">
-###KANESAKA_GMAIL###
+###UNIFIED_MAIL_SECTION###
   </div>
-  <div class="card full" id="kanesaka-blocklist-card" style="padding:12px 16px;display:none;margin-top:8px;">
-    <div class="card-title" style="margin-bottom:6px;">🚫 今後表示しない送信元（kanesaka.agni）</div>
-    <div id="kanesaka-blocklist-list"></div>
-  </div>
-
-  <!-- ═══ agniyoga.ad メール（未読・全件） ═══ -->
-  <div class="section-head">📨 agniyoga.ad@gmail.com・未読（フィルタなし）<span style="font-size:10px;font-weight:normal;margin-left:8px;color:var(--sub);">###AGNIYOGA_AD_GMAIL_FETCHED###</span></div>
-  <div class="card">
-###AGNIYOGA_AD_GMAIL###
-  </div>
-  <div class="card full" id="blocklist-card" style="padding:12px 16px;display:none;margin-top:8px;">
-    <div class="card-title" style="margin-bottom:6px;">🚫 今後表示しない送信元（agniyoga.ad）</div>
-    <div id="blocklist-list"></div>
+  <div class="card full" id="unified-blocklist-card" style="padding:12px 16px;display:none;margin-top:8px;">
+    <div class="card-title" style="margin-bottom:6px;">🚫 今後表示しない送信元</div>
+    <div id="unified-blocklist-list"></div>
   </div>
 
   <!-- ═══ 近日の予定 ═══ -->
@@ -1154,10 +1108,16 @@ function toggleDetail(id){const el=document.getElementById(id);if(el)el.classLis
   applyBuiltinRoutineDismissed();
   renderCustomRoutines();renderCustomAdhoc();renderTrash();
   loadApiCost();
-  applyBlocklist();
-  if(GH_TOKEN){ghGetBlocklist().then(function(r){_sab(r.list);applyBlocklist();});}
-  applyKanesakaBlocklist();
-  if(GH_TOKEN){ghGetSenderRules().then(function(r){_skb(r.rules.always_hide||[]);applyKanesakaBlocklist();});}
+  applyUnifiedBlocklist();
+  if(GH_TOKEN){ghGetSenderRules().then(function(r){
+    const hidden=[];
+    Object.keys(r.rules||{}).forEach(function(acct){
+      Object.keys(r.rules[acct]||{}).forEach(function(domain){
+        if(r.rules[acct][domain]==='hide')hidden.push(acct+'|'+domain);
+      });
+    });
+    _sub(hidden);applyUnifiedBlocklist();
+  });}
   // GitHubと同期して再適用
   if(GH_TOKEN){ghGet().then(function(r){const merged=mergeDone(_gd(),r.list);_sd(merged);applyDoneState(merged);renderCustomAdhoc();const ids=function(l){return l.map(function(i){return i.id;}).sort().join(',');};if(ids(merged)!==ids(r.list))ghPut(merged,r.sha);});}
 })();
@@ -1475,36 +1435,20 @@ except Exception as e:
 n_training = judgment.get('training_count', 0)
 kpi_note   = judgment.get('kpi_note', '')
 
-# 2b) Fetch kanesaka.agni@gmail.com unread mails
-kanesaka_gmail_mails = []
-gmail_fetched_at = ''
+# 2b) 統合メール一覧（kanesaka_activia / kanesaka.agni / agniyoga.ad の3アカウントをAIが仕分け済み）
+# ※このファイルは「メール反映」ボタン（ci_fetch_and_judge.py）が更新する。
+#   ローカルでrebuild_all.pyを実行してもここでは再取得しない
+#   （手元の古いコピーでライブのAI判定済みデータを上書きしないため）。
+unified_mails = []
+unified_mail_fetched_at = ''
 try:
-    import subprocess as _sp
-    _gmail_script = (os.path.join(PROJECT_DIR, '.github', 'scripts', 'check_kanesaka_gmail.py')
-                      if CI_MODE else os.path.join(INPUT_DIR, 'check_kanesaka_gmail.py'))
-    _sp.run([sys.executable, _gmail_script], check=True, capture_output=True)
+    with open(UNIFIED_MAIL_FILE, encoding='utf-8') as f:
+        um = json.load(f)
+    unified_mails = um.get('mails', [])
+    unified_mail_fetched_at = um.get('updated', '')
+    print(f"統合メール: {len(unified_mails)}件（要対応{sum(1 for m in unified_mails if m.get('category')=='action')}件）")
 except Exception as e:
-    print(f"Gmail取得エラー（スキップ）: {e}")
-try:
-    with open(KANESAKA_GMAIL_FILE, encoding='utf-8') as f:
-        gm = json.load(f)
-    kanesaka_gmail_mails = gm.get('mails', [])
-    gmail_fetched_at = gm.get('fetched_at', '')
-    print(f"個人Gmail（未読）: {len(kanesaka_gmail_mails)}件")
-except Exception as e:
-    print(f"Gmail JSON読み込みエラー: {e}")
-
-# 2c) agniyoga.ad@gmail.com unread mails（同じsubprocess呼び出しで取得済み）
-agniyoga_ad_gmail_mails = []
-agniyoga_ad_gmail_fetched_at = ''
-try:
-    with open(AGNIYOGA_AD_GMAIL_FILE, encoding='utf-8') as f:
-        gm2 = json.load(f)
-    agniyoga_ad_gmail_mails = gm2.get('mails', [])
-    agniyoga_ad_gmail_fetched_at = gm2.get('fetched_at', '')
-    print(f"agniyoga.ad Gmail（未読）: {len(agniyoga_ad_gmail_mails)}件")
-except Exception as e:
-    print(f"agniyoga.ad Gmail JSON読み込みエラー: {e}")
+    print(f"統合メールJSON読み込みエラー（「メール反映」未実行の可能性）: {e}")
 
 # 2d) Googleカレンダー（kanesaka.agni@gmail.com プライマリ）
 calendar_events = []
@@ -1526,10 +1470,8 @@ except Exception as e:
     print(f"カレンダーJSON読み込みエラー: {e}")
 
 # 3) Generate dynamic sections
-mail_html        = generate_mail_section(judgment.get('urgent_mails', []))
-gmail_html       = generate_kanesaka_gmail_section(kanesaka_gmail_mails, block_fn='blockKanesakaSenderDomain')
-agniyoga_ad_gmail_html = generate_kanesaka_gmail_section(
-    agniyoga_ad_gmail_mails, id_prefix='gmad', default_to='agniyoga.ad@gmail.com', block_fn='blockSenderDomain')
+action_mail_html = generate_unified_mail_section(unified_mails, filter_categories={'action'})
+unified_mail_html = generate_unified_mail_section(unified_mails)
 kpi_html         = generate_kpi_section(
     trials, shiryo_list, setsumeikai_list, n_training,
     kpi_note, today, month
@@ -1539,11 +1481,9 @@ schedule_html = generate_schedule_section(calendar_events, now.date())
 
 # 4) Assemble Dashboard HTML
 dashboard_html = (DASHBOARD_TEMPLATE
-    .replace('###MAIL_SECTION###', mail_html)
-    .replace('###KANESAKA_GMAIL###', gmail_html)
-    .replace('###GMAIL_FETCHED###', f'取得: {gmail_fetched_at}')
-    .replace('###AGNIYOGA_AD_GMAIL###', agniyoga_ad_gmail_html)
-    .replace('###AGNIYOGA_AD_GMAIL_FETCHED###', f'取得: {agniyoga_ad_gmail_fetched_at}')
+    .replace('###ACTION_MAIL_SECTION###', action_mail_html)
+    .replace('###UNIFIED_MAIL_SECTION###', unified_mail_html)
+    .replace('###UNIFIED_MAIL_FETCHED###', f'取得: {unified_mail_fetched_at}')
     .replace('###SCHEDULE_SECTION###', schedule_html)
     .replace('###CALENDAR_FETCHED###', f'取得: {calendar_fetched_at}')
     .replace('###KPI_SECTION###', kpi_html)
