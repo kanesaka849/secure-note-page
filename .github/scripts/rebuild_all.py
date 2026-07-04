@@ -713,6 +713,8 @@ DASHBOARD_TEMPLATE = """<!DOCTYPE html>
   .task-card.done    { border-left: 4px solid var(--blue);   background: #f0f8ff; opacity: 0.7; }
   .task-card.routine { border-left: 4px solid var(--orange); background: #fff8f0; }
   .task-card.extra   { border-left: 4px solid var(--teal);   background: #f7fffe; }
+  .task-card.extra.urgency-urgent { border-left-color: var(--red);    background: #fff5f5; }
+  .task-card.extra.urgency-soon   { border-left-color: var(--orange); background: #fff8f0; }
   .btn-add-task { color: var(--teal); border-color: var(--teal); }
   .btn-add-task.pressed { background: var(--teal); color: white; }
   .task-title { font-size: 13px; font-weight: bold; margin-bottom: 4px; display: flex; align-items: center; gap: 6px; transition: color 0.15s; }
@@ -756,18 +758,11 @@ DASHBOARD_TEMPLATE = """<!DOCTYPE html>
   .routine-item:last-child { border-bottom: none; }
   .routine-name { font-size: 12px; }
   .routine-freq { font-size: 11px; color: var(--sub); text-align: right; min-width: 120px; }
-  .adhoc-item { display: flex; align-items: flex-start; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--border); }
-  .adhoc-item:last-child { border-bottom: none; }
-  .adhoc-check { width: 22px; height: 22px; border: 2px solid #ccc; border-radius: 4px; flex-shrink: 0; margin-top: 1px; cursor: pointer; transition: all .15s; display:flex; align-items:center; justify-content:center; color:#ccc; font-size:13px; font-weight:bold; }
-  .adhoc-check::before { content:'✓'; }
-  .adhoc-check:hover { background: var(--green); border-color: var(--green); color:white; }
-  .adhoc-text { font-size: 12px; flex: 1; }
-  .adhoc-due { font-size: 11px; color: var(--red); font-weight: bold; }
   .log-item { font-size: 11px; color: var(--sub); padding: 3px 0; border-bottom: 1px dotted var(--border); }
   .log-item:last-child { border-bottom: none; }
   .archived { opacity: 1; background: #e5e7eb !important; border-color: #9ca3af !important; }
-  .archived .adhoc-text, .archived .task-title, .archived .mail-title, .archived .routine-name { color: #4b5563; }
-  .archived .mail-sub, .archived .task-next, .archived .adhoc-due, .archived .routine-freq, .archived .detail-from, .archived .detail-body { color: #6b7280; }
+  .archived .task-title, .archived .mail-title, .archived .routine-name { color: #4b5563; }
+  .archived .mail-sub, .archived .task-next, .archived .routine-freq, .archived .detail-from, .archived .detail-body { color: #6b7280; }
   .done-time-badge { font-size: 10px; font-weight: normal; color: #6b7280; margin-left: 6px; }
   .undo-inline-btn { font-size: 10px; padding: 1px 6px; margin-left: 4px; border: 1px solid #9ca3af; border-radius: 4px; background: #fff; color: #374151; cursor: pointer; }
   .undo-inline-btn:hover { background: #f3f4f6; }
@@ -809,8 +804,8 @@ DASHBOARD_TEMPLATE = """<!DOCTYPE html>
   .rt-toggle-btn { font-size: 11px; color: var(--blue); background: transparent; border: 1px solid var(--blue); border-radius: 4px; padding: 2px 10px; cursor: pointer; }
   .rt-form { display: none; background: #f8fafc; border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; margin-top: 8px; }
   .rt-form.open { display: block; }
-  .rt-form input { width: 100%; border: 1px solid var(--border); border-radius: 4px; padding: 6px 8px; font-size: 12px; margin-bottom: 6px; outline: none; font-family: inherit; }
-  .rt-form input:focus { border-color: var(--blue); }
+  .rt-form input, .rt-form select { width: 100%; border: 1px solid var(--border); border-radius: 4px; padding: 6px 8px; font-size: 12px; margin-bottom: 6px; outline: none; font-family: inherit; }
+  .rt-form input:focus, .rt-form select:focus { border-color: var(--blue); }
   .rt-form-btns { display: flex; gap: 6px; }
   .rt-save-btn { background: var(--blue); color: white; border: none; border-radius: 4px; padding: 5px 14px; font-size: 12px; cursor: pointer; }
   .rt-cancel-btn { background: transparent; color: var(--sub); border: 1px solid var(--border); border-radius: 4px; padding: 5px 10px; font-size: 12px; cursor: pointer; }
@@ -961,7 +956,7 @@ function fmtDoneTime(ts){
 var DONE_BADGE_LABEL={done:'✓完了',block:'✕非表示（送信元）',blockCategory:'△非表示（カテゴリ）'};
 var DONE_BTN_CLASS={done:'btn-check',block:'btn-x',blockCategory:'btn-triangle'};
 function addDoneBadge(el,completedAt,reason){
-  var titleEl=el.querySelector('.mail-title,.task-title,.adhoc-text,.routine-name');
+  var titleEl=el.querySelector('.mail-title,.task-title,.routine-name');
   if(!titleEl)return;
   var badge=titleEl.querySelector('.done-time-badge');
   if(!badge){badge=document.createElement('span');badge.className='done-time-badge';titleEl.appendChild(badge);}
@@ -1005,32 +1000,50 @@ function toggleRtForm(){const f=document.getElementById('rt-form');if(f)f.classL
 function addRoutine(){const n=document.getElementById('rt-name').value.trim(),f=document.getElementById('rt-freq').value.trim();if(!n)return;const list=_gr();list.push({id:'cr-'+Date.now(),name:n,freq:f});_sr(list);renderCustomRoutines();document.getElementById('rt-name').value='';document.getElementById('rt-freq').value='';document.getElementById('rt-form').classList.remove('open');}
 function deleteRoutine(id){if(!confirm('このルーチンを削除しますか？（後で元に戻せます）'))return;const r=_gr().find(function(x){return x.id===id;});_sr(_gr().filter(function(x){return x.id!==id;}));if(r){const list=_gtr();list.push({id:r.id,kind:'routine',name:r.name,freq:r.freq,deletedAt:Date.now()});_str(list);}renderCustomRoutines();renderTrash();}
 function renderCustomRoutines(){const el=document.getElementById('custom-routines');if(!el)return;const list=_gr();el.innerHTML=list.length===0?'':list.map(r=>`<div class="routine-item" id="${r.id}"><div class="routine-name">${_esc(r.name)}</div><div class="routine-freq">${_esc(r.freq)}<button class="rt-del-btn" onclick="deleteRoutine('${r.id}')" title="削除">✕</button></div></div>`).join('');}
-const AH_KEY='ks_custom_adhoc_v1';
-function _gah(){try{return JSON.parse(localStorage.getItem(AH_KEY)||'[]');}catch{return[];}}
-function _sah(list){localStorage.setItem(AH_KEY,JSON.stringify(list));}
-function toggleAdhocForm(col){const f=document.getElementById('adhoc-form-'+col);if(f)f.classList.toggle('open');}
-function addAdhoc(col){const n=document.getElementById('adhoc-name-'+col).value.trim(),d=document.getElementById('adhoc-due-'+col).value.trim();if(!n)return;const list=_gah(),id='ca-'+Date.now();list.push({id,name:n,due:d,col});_sah(list);renderCustomAdhoc();document.getElementById('adhoc-name-'+col).value='';document.getElementById('adhoc-due-'+col).value='';document.getElementById('adhoc-form-'+col).classList.remove('open');}
-function deleteAdhoc(id){if(!confirm('このタスクを削除しますか？（後で元に戻せます）'))return;const t=_gah().find(function(x){return x.id===id;});_sah(_gah().filter(function(x){return x.id!==id;}));if(t){const list=_gtr();list.push({id:t.id,kind:'adhoc',name:t.name,due:t.due||'',col:t.col,deletedAt:Date.now()});_str(list);}renderCustomAdhoc();renderTrash();}
-const MT_KEY='ks_mail_tasks_v1';
-function _gmt(){try{return JSON.parse(localStorage.getItem(MT_KEY)||'[]');}catch{return[];}}
-function _smt(list){localStorage.setItem(MT_KEY,JSON.stringify(list));}
+const XT_KEY='ks_extra_tasks_v1';
+function _gxt(){try{return JSON.parse(localStorage.getItem(XT_KEY)||'[]');}catch{return[];}}
+function _sxt(list){localStorage.setItem(XT_KEY,JSON.stringify(list));}
+const URGENCY_ICON={urgent:'🔴',soon:'🟡'};
+const URGENCY_ORDER={urgent:0,soon:1,'':2};
 function addMailToTaskList(mailId,title,btn){
   const taskId='mt-'+mailId;
-  const list=_gmt();
-  if(!list.find(t=>t.id===taskId)){list.push({id:taskId,name:title,mailId,addedAt:Date.now()});_smt(list);renderMailTasks();}
+  const list=_gxt();
+  if(!list.find(t=>t.id===taskId)){list.push({id:taskId,name:title,source:'mail',mailId,urgency:'',addedAt:Date.now()});_sxt(list);renderExtraTasks();}
   if(btn){btn.textContent='✓追加済';btn.disabled=true;btn.classList.add('pressed');}
 }
-function deleteMailTask(id){_smt(_gmt().filter(t=>t.id!==id));renderMailTasks();}
-function renderMailTasks(){
-  const el=document.getElementById('custom-mail-tasks');if(!el)return;
+function toggleExtraTaskForm(){const f=document.getElementById('extra-task-form');if(f)f.classList.toggle('open');}
+function addExtraTask(){
+  const n=document.getElementById('extra-task-name').value.trim();
+  const u=document.getElementById('extra-task-urgency').value;
+  if(!n)return;
+  const list=_gxt();
+  list.push({id:'xt-'+Date.now(),name:n,source:'manual',urgency:u,addedAt:Date.now()});
+  _sxt(list);renderExtraTasks();
+  document.getElementById('extra-task-name').value='';
+  document.getElementById('extra-task-form').classList.remove('open');
+}
+function deleteExtraTask(id){
+  if(!confirm('このタスクを削除しますか？（後で元に戻せます）'))return;
+  const t=_gxt().find(function(x){return x.id===id;});
+  _sxt(_gxt().filter(function(x){return x.id!==id;}));
+  if(t){const list=_gtr();list.push({id:t.id,kind:'extra',name:t.name,source:t.source,urgency:t.urgency||'',mailId:t.mailId,deletedAt:Date.now()});_str(list);}
+  renderExtraTasks();renderTrash();
+}
+function renderExtraTasks(){
+  const el=document.getElementById('custom-extra-tasks');if(!el)return;
   const now=Date.now(),H12=12*3600*1000;
   const doneMap={};_gd().forEach(function(d){doneMap[d.id]=d.completedAt;});
-  const list=_gmt();
+  const list=_gxt().slice().sort(function(a,b){
+    const ua=URGENCY_ORDER[a.urgency||'']??2,ub=URGENCY_ORDER[b.urgency||'']??2;
+    return ua!==ub?ua-ub:a.addedAt-b.addedAt;
+  });
   el.innerHTML=list.map(t=>{
     const doneAt=doneMap[t.id];
     if(doneAt&&(now-doneAt>=H12))return '';
-    const cls=doneAt?'task-card extra archived':'task-card extra';
-    return `<div class="${cls}" id="${t.id}"><div class="task-header"><div class="task-title"><span class="badge badge-blue">📧</span> ${_esc(t.name)}</div><button class="archive-btn btn-check" title="完了" onclick="event.stopPropagation();archiveItem('${t.id}')">✓</button><button class="rt-del-btn" onclick="event.stopPropagation();deleteMailTask('${t.id}')" title="削除">✕</button></div></div>`;
+    const urgCls=t.urgency?' urgency-'+t.urgency:'';
+    const cls=(doneAt?'task-card extra archived':'task-card extra')+urgCls;
+    const icon=t.source==='mail'?'📧':(URGENCY_ICON[t.urgency]||'📝');
+    return `<div class="${cls}" id="${t.id}"><div class="task-header"><div class="task-title"><span class="badge badge-blue">${icon}</span> ${_esc(t.name)}</div><button class="archive-btn btn-check" title="完了" onclick="event.stopPropagation();archiveItem('${t.id}')">✓</button><button class="rt-del-btn" onclick="event.stopPropagation();deleteExtraTask('${t.id}')" title="削除">✕</button></div></div>`;
   }).join('');
 }
 const TR_KEY='ks_trash_v1';
@@ -1048,7 +1061,7 @@ function restoreTrashItem(id){
   const list=_gtr();const idx=list.findIndex(function(t){return t.id===id;});if(idx<0)return;
   const item=list[idx];list.splice(idx,1);_str(list);
   if(item.kind==='routine'){const rl=_gr();rl.push({id:item.id,name:item.name,freq:item.freq});_sr(rl);renderCustomRoutines();}
-  else if(item.kind==='adhoc'){const al=_gah();al.push({id:item.id,name:item.name,due:item.due||'',col:item.col});_sah(al);renderCustomAdhoc();}
+  else if(item.kind==='extra'){const xl=_gxt();xl.push({id:item.id,name:item.name,source:item.source||'manual',urgency:item.urgency||'',mailId:item.mailId,addedAt:Date.now()});_sxt(xl);renderExtraTasks();}
   else if(item.kind==='builtin'){const el2=document.getElementById(item.id);if(el2)el2.style.display='';}
   renderTrash();
 }
@@ -1064,24 +1077,10 @@ function deleteBuiltinRoutine(id){
 function applyBuiltinRoutineDismissed(){
   _gtr().filter(function(t){return t.kind==='builtin';}).forEach(function(t){const el=document.getElementById(t.id);if(el)el.style.display='none';});
 }
-function renderCustomAdhoc(){
-  const now=Date.now(),H12=12*3600*1000;
-  const doneMap={};_gd().forEach(function(d){doneMap[d.id]=d.completedAt;});
-  ['urgent','soon'].forEach(col=>{
-    const el=document.getElementById('custom-adhoc-'+col);if(!el)return;
-    const list=_gah().filter(t=>t.col===col);
-    el.innerHTML=list.map(t=>{
-      const doneAt=doneMap[t.id];
-      if(doneAt&&(now-doneAt>=H12))return '';
-      const cls=doneAt?'adhoc-item archived':'adhoc-item';
-      return `<div class="${cls}" id="${t.id}"><div class="adhoc-check" onclick="archiveItem('${t.id}')" title="完了"></div><div class="adhoc-text">${_esc(t.name)}${t.due?`<div class="adhoc-due">${_esc(t.due)}</div>`:''}<button class="rt-del-btn" onclick="deleteAdhoc('${t.id}')" title="削除" style="margin-left:6px">✕</button></div></div>`;
-    }).join('');
-  });
-}
 function archiveItem(id,reason,meta){
   const el=document.getElementById(id);
   if(!el||el.classList.contains('archived'))return;
-  const textEl=el.querySelector('.adhoc-text,.task-next,.task-title,.mail-title');
+  const textEl=el.querySelector('.task-next,.task-title,.mail-title');
   const text=textEl?textEl.textContent.trim().slice(0,60):'';
   const item={id,text,completedAt:Date.now(),reason:reason||'done'};
   if(meta)item.meta=meta;
@@ -1148,9 +1147,60 @@ function fallbackCopy(text,done){
     <div class="fv-col">
       <div class="section-head">📋 タスク一覧</div>
       <div class="card scroll-card">
-        <div id="custom-mail-tasks"></div>
+        <div id="custom-extra-tasks"></div>
+        <div style="margin:2px 0 8px;display:flex;justify-content:flex-end;"><button class="rt-toggle-btn" onclick="toggleExtraTaskForm()">＋ 追加</button></div>
+        <div class="rt-form" id="extra-task-form">
+          <input type="text" id="extra-task-name" placeholder="タスク名">
+          <select id="extra-task-urgency">
+            <option value="urgent">🔴 急ぎ</option>
+            <option value="soon" selected>🟡 近いうち</option>
+            <option value="">指定なし</option>
+          </select>
+          <div class="rt-form-btns">
+            <button class="rt-save-btn" onclick="addExtraTask()">追加</button>
+            <button class="rt-cancel-btn" onclick="toggleExtraTaskForm()">キャンセル</button>
+          </div>
+        </div>
 ###TODAY_CALENDAR_TASKS###
 ###ROUTINE_TASKS###
+        <div class="task-card extra urgency-urgent" id="a-1">
+          <div class="task-header"><div class="task-title">🔴 ✈️ ANA搭乗の最終確認（予約番号 EU4DAG）</div><button class="archive-btn btn-check" title="完了" onclick="event.stopPropagation();archiveItem('a-1')">✓</button></div>
+          <div class="task-next">近日搭乗</div>
+        </div>
+        <div class="task-card extra urgency-urgent" id="a-2">
+          <div class="task-header"><div class="task-title">🔴 📚 JASSO奨学金 息子に書類提出確認</div><button class="archive-btn btn-check" title="完了" onclick="event.stopPropagation();archiveItem('a-2')">✓</button></div>
+          <div class="task-next">期日要確認</div>
+        </div>
+        <div class="task-card extra urgency-urgent" id="a-3">
+          <div class="task-header"><div class="task-title">🔴 🎓 OC予約 7/25 → OCANs</div><button class="archive-btn btn-check" title="完了" onclick="event.stopPropagation();archiveItem('a-3')">✓</button></div>
+          <div class="task-next">枠が埋まる前に早急</div>
+        </div>
+        <div class="task-card extra urgency-urgent" id="a-4">
+          <div class="task-header"><div class="task-title">🔴 💳 PayPal カード更新（末尾2063）</div><button class="archive-btn btn-check" title="完了" onclick="event.stopPropagation();archiveItem('a-4')">✓</button></div>
+          <div class="task-next">現在利用不可</div>
+        </div>
+        <div class="task-card extra urgency-urgent" id="a-5">
+          <div class="task-header"><div class="task-title">🔴 ⚖️ ベリーベスト法律事務所 ZEUS支払い</div><button class="archive-btn btn-check" title="完了" onclick="event.stopPropagation();archiveItem('a-5')">✓</button></div>
+          <div class="task-next">期日内に要対応</div>
+        </div>
+        <div class="task-card extra urgency-soon" id="a-6">
+          <div class="task-header"><div class="task-title">🟡 Microsoft アカウント PW変更（旧役員ログアウト）</div><button class="archive-btn btn-check" title="完了" onclick="event.stopPropagation();archiveItem('a-6')">✓</button></div>
+        </div>
+        <div class="task-card extra urgency-soon" id="a-7">
+          <div class="task-header"><div class="task-title">🟡 ⚽ 合宿移動方針 → 河合先生返答待ち</div><button class="archive-btn btn-check" title="完了" onclick="event.stopPropagation();archiveItem('a-7')">✓</button></div>
+        </div>
+        <div class="task-card extra urgency-soon" id="a-8">
+          <div class="task-header"><div class="task-title">🟡 🏦 武蔵野銀行 電子交付移行（8月〜）確認</div><button class="archive-btn btn-check" title="完了" onclick="event.stopPropagation();archiveItem('a-8')">✓</button></div>
+        </div>
+        <div class="task-card extra urgency-soon" id="a-9">
+          <div class="task-header"><div class="task-title">🟡 🏦 三菱UFJ BizSTATION アプリ更新・認証再登録</div><button class="archive-btn btn-check" title="完了" onclick="event.stopPropagation();archiveItem('a-9')">✓</button></div>
+        </div>
+        <div class="task-card extra urgency-soon" id="a-10">
+          <div class="task-header"><div class="task-title">🟡 GDrive オーナー変更（kanesaka.agni → fubokai 6ファイル）</div><button class="archive-btn btn-check" title="完了" onclick="event.stopPropagation();archiveItem('a-10')">✓</button></div>
+        </div>
+        <div class="task-card extra urgency-soon" id="a-11">
+          <div class="task-header"><div class="task-title">🟡 OneDrive 解約（GDrive移行完了後）</div><button class="archive-btn btn-check" title="完了" onclick="event.stopPropagation();archiveItem('a-11')">✓</button></div>
+        </div>
         <div class="task-card active" id="t-5">
           <div class="task-header" onclick="toggleDetail('t-5')">
             <div class="task-title"><span class="badge badge-green">▶</span> #5 大学受験サポート</div>
@@ -1331,42 +1381,6 @@ function fallbackCopy(text,done){
     <div id="trash-list"></div>
   </div>
 
-  <!-- ═══ 随時・不定期タスク ═══ -->
-  <div class="section-head">⚡ 随時・不定期タスク（やること todo）</div>
-  <div class="grid">
-    <div class="card">
-      <div class="card-title">🔴 急ぎ</div>
-      <div class="adhoc-item" id="a-1"><div class="adhoc-check" onclick="archiveItem('a-1')" title="完了"></div><div class="adhoc-text">✈️ ANA搭乗の最終確認（予約番号 EU4DAG）<div class="adhoc-due">近日搭乗</div></div></div>
-      <div class="adhoc-item" id="a-2"><div class="adhoc-check" onclick="archiveItem('a-2')" title="完了"></div><div class="adhoc-text">📚 JASSO奨学金 息子に書類提出確認<div class="adhoc-due">期日要確認</div></div></div>
-      <div class="adhoc-item" id="a-3"><div class="adhoc-check" onclick="archiveItem('a-3')" title="完了"></div><div class="adhoc-text">🎓 OC予約 7/25 → OCANs<div class="adhoc-due">枠が埋まる前に早急</div></div></div>
-      <div class="adhoc-item" id="a-4"><div class="adhoc-check" onclick="archiveItem('a-4')" title="完了"></div><div class="adhoc-text">💳 PayPal カード更新（末尾2063）<div class="adhoc-due">現在利用不可</div></div></div>
-      <div class="adhoc-item" id="a-5"><div class="adhoc-check" onclick="archiveItem('a-5')" title="完了"></div><div class="adhoc-text">⚖️ ベリーベスト法律事務所 ZEUS支払い<div class="adhoc-due">期日内に要対応</div></div></div>
-      <div id="custom-adhoc-urgent"></div>
-      <div style="margin-top:6px;display:flex;justify-content:flex-end;"><button class="rt-toggle-btn" onclick="toggleAdhocForm('urgent')">＋ 追加</button></div>
-      <div class="rt-form" id="adhoc-form-urgent">
-        <input type="text" id="adhoc-name-urgent" placeholder="タスク名">
-        <input type="text" id="adhoc-due-urgent" placeholder="期日・メモ（任意）">
-        <div class="rt-form-btns"><button class="rt-save-btn" onclick="addAdhoc('urgent')">追加</button><button class="rt-cancel-btn" onclick="toggleAdhocForm('urgent')">キャンセル</button></div>
-      </div>
-    </div>
-    <div class="card">
-      <div class="card-title">🟡 近いうち</div>
-      <div class="adhoc-item" id="a-6"><div class="adhoc-check" onclick="archiveItem('a-6')" title="完了"></div><div class="adhoc-text">Microsoft アカウント PW変更（旧役員ログアウト）</div></div>
-      <div class="adhoc-item" id="a-7"><div class="adhoc-check" onclick="archiveItem('a-7')" title="完了"></div><div class="adhoc-text">⚽ 合宿移動方針 → 河合先生返答待ち</div></div>
-      <div class="adhoc-item" id="a-8"><div class="adhoc-check" onclick="archiveItem('a-8')" title="完了"></div><div class="adhoc-text">🏦 武蔵野銀行 電子交付移行（8月〜）確認</div></div>
-      <div class="adhoc-item" id="a-9"><div class="adhoc-check" onclick="archiveItem('a-9')" title="完了"></div><div class="adhoc-text">🏦 三菱UFJ BizSTATION アプリ更新・認証再登録</div></div>
-      <div class="adhoc-item" id="a-10"><div class="adhoc-check" onclick="archiveItem('a-10')" title="完了"></div><div class="adhoc-text">GDrive オーナー変更（kanesaka.agni → fubokai 6ファイル）</div></div>
-      <div class="adhoc-item" id="a-11"><div class="adhoc-check" onclick="archiveItem('a-11')" title="完了"></div><div class="adhoc-text">OneDrive 解約（GDrive移行完了後）</div></div>
-      <div id="custom-adhoc-soon"></div>
-      <div style="margin-top:6px;display:flex;justify-content:flex-end;"><button class="rt-toggle-btn" onclick="toggleAdhocForm('soon')">＋ 追加</button></div>
-      <div class="rt-form" id="adhoc-form-soon">
-        <input type="text" id="adhoc-name-soon" placeholder="タスク名">
-        <input type="text" id="adhoc-due-soon" placeholder="期日・メモ（任意）">
-        <div class="rt-form-btns"><button class="rt-save-btn" onclick="addAdhoc('soon')">追加</button><button class="rt-cancel-btn" onclick="toggleAdhocForm('soon')">キャンセル</button></div>
-      </div>
-    </div>
-  </div>
-
   <!-- ═══ 更新ログ ═══ -->
   <div class="section-head">📝 更新ログ</div>
   <div class="card full">
@@ -1389,7 +1403,7 @@ function fallbackCopy(text,done){
   applyDoneState(_gd());
   trashPurgeOld();
   applyBuiltinRoutineDismissed();
-  renderCustomRoutines();renderCustomAdhoc();renderMailTasks();renderTrash();
+  renderCustomRoutines();renderExtraTasks();renderTrash();
   loadApiCost();
   applyUnifiedBlocklist();
   if(GH_TOKEN){ghGetSenderRules().then(function(r){
@@ -1402,7 +1416,7 @@ function fallbackCopy(text,done){
     _sub(hidden);applyUnifiedBlocklist();
   });}
   // GitHubと同期して再適用
-  if(GH_TOKEN){ghGet().then(function(r){const merged=mergeDone(_gd(),r.list);_sd(merged);applyDoneState(merged);renderCustomAdhoc();const ids=function(l){return l.map(function(i){return i.id;}).sort().join(',');};if(ids(merged)!==ids(r.list))ghPut(merged,r.sha);});}
+  if(GH_TOKEN){ghGet().then(function(r){const merged=mergeDone(_gd(),r.list);_sd(merged);applyDoneState(merged);renderExtraTasks();const ids=function(l){return l.map(function(i){return i.id;}).sort().join(',');};if(ids(merged)!==ids(r.list))ghPut(merged,r.sha);});}
 })();
 </script>
 </body>
