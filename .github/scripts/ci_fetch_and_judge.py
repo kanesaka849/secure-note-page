@@ -17,9 +17,11 @@ GitHub Actions専用スクリプト。以下を実行する：
 """
 import imaplib, poplib, ssl, email, json, os, sys, re, base64, html, urllib.request, urllib.parse
 from email.header import decode_header
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+
+JST = timezone(timedelta(hours=9))
 
 WORKSPACE = os.environ.get('GITHUB_WORKSPACE', '.')
 INPUT_DIR = os.path.join(WORKSPACE, 'ci_input')
@@ -588,7 +590,7 @@ def main():
 
     with open(os.path.join(INPUT_DIR, 'mail_unified.json'), 'w', encoding='utf-8') as f:
         json.dump({
-            'updated': datetime.now().strftime('%Y-%m-%d %H:%M'),
+            'updated': datetime.now(JST).strftime('%Y-%m-%d %H:%M'),
             'mails': unified_mails,
         }, f, ensure_ascii=False, indent=2)
 
@@ -599,7 +601,7 @@ def main():
     # 空のスタブとして書き出す（urgent_mailsはmail_unified.jsonに統合されたため含めない）
     with open(os.path.join(INPUT_DIR, 'mail_judgment.json'), 'w', encoding='utf-8') as f:
         json.dump({
-            'updated': datetime.now().strftime('%Y-%m-%d'),
+            'updated': datetime.now(JST).strftime('%Y-%m-%d'),
             'kpi_note': '',
             'training_count': 0,
         }, f, ensure_ascii=False, indent=2)

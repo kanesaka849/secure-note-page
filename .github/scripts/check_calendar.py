@@ -8,6 +8,8 @@ from datetime import datetime, timedelta, timezone
 
 sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 
+JST = timezone(timedelta(hours=9))
+
 CI_MODE = os.environ.get('GITHUB_ACTIONS') == 'true'
 
 if CI_MODE:
@@ -89,7 +91,7 @@ def fetch_events():
         })
 
     out = {
-        'fetched_at': datetime.now().strftime('%Y-%m-%d %H:%M'),
+        'fetched_at': datetime.now(JST).strftime('%Y-%m-%d %H:%M'),
         'events': events,
     }
     with open(OUT_FILE, 'w', encoding='utf-8') as f:

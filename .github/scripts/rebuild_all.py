@@ -6,10 +6,14 @@ rebuild_all.py  ─  金坂ダッシュボード ビルド&デプロイスクリ
   → 暗号化HTML生成 → output/ に保存 → git push でデプロイ
 """
 import base64, json, sys, os, re, shutil, subprocess
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, timedelta, timezone
 from email.utils import parsedate_to_datetime
 
 sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+
+# CI（GitHub Actions）はUTCで動くため、datetime.now()の類は必ずJSTを明示指定すること
+# （指定しないとホストのタイムゾーンに引きずられ、カレンダー時刻等が最大9時間ずれる）
+JST = timezone(timedelta(hours=9))
 
 # ── CI mode detection ────────────────────────────────────────────────────
 # GitHub Actions実行時（GITHUB_ACTIONS=true）はパス・パスワード・git操作を
@@ -374,7 +378,7 @@ def generate_schedule_section(events, today_dt):
             if ev.get('all_day'):
                 dt = datetime.strptime(start[:10], '%Y-%m-%d')
             else:
-                dt = datetime.fromisoformat(start.replace('Z', '+00:00')).astimezone().replace(tzinfo=None)
+                dt = datetime.fromisoformat(start.replace('Z', '+00:00')).astimezone(JST).replace(tzinfo=None)
         except Exception:
             continue
         by_month.setdefault((dt.year, dt.month), []).append((dt, ev))
@@ -1723,7 +1727,7 @@ def git_push(today):
     print("→ https://kanesaka849.github.io/secure-note-page/kanesaka-tasks.html")
 
 # ── Main ────────────────────────────────────────────────────────────────
-now   = datetime.now()
+now   = datetime.now(JST)
 today = now.strftime('%Y-%m-%d %H:%M')
 year  = now.year
 month = now.month
