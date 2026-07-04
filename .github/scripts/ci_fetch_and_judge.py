@@ -445,13 +445,13 @@ def apply_sender_rules(mails, account_rules):
 
 
 def _hide_categories_for(mail, account_rules):
-    """actionは重要な連絡を見落とすリスクがあるため、△の部分非表示ルールに含まれていても
-    絶対に非表示対象にしない（UIの入力段階でも弾いているが、ここでも念のため防御する）。"""
+    """△ボタンで送信元ごとに部分非表示指定されたカテゴリの集合を返す。
+    actionカテゴリも指定可能（クライアント側で確認ダイアログを表示してから設定される想定）。"""
     addr = _sender_address(mail['from'])
     domain = mail.get('domain', '')
     rule = account_rules.get(addr) or account_rules.get(domain)
     if isinstance(rule, dict):
-        return set(rule.get('hide_categories', [])) - {'action'}
+        return set(rule.get('hide_categories', []))
     return set()
 
 
