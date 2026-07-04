@@ -193,6 +193,27 @@ def count_setsumeikai(school_data, year, month):
         })
     return results
 
+def count_training_contracts(unified_mails, year, month):
+    """クラウドサイン等で届く養成講座申込書の合意締結完了通知をKPI「養成講座」としてカウントする。
+    統合メール一覧（AI仕分け済み）のtitle/sub/detailに「講座」を含み、
+    差出人ドメインがcloudsign.jpのものを対象とする。"""
+    results = []
+    for m in unified_mails:
+        if m.get('domain') != 'cloudsign.jp':
+            continue
+        text = f"{m.get('title','')} {m.get('sub','')} {m.get('detail','')}"
+        if '講座' not in text:
+            continue
+        if not is_this_month(m.get('date', ''), year, month):
+            continue
+        results.append({
+            'subject': m.get('title', ''),
+            'date':    m.get('date', ''),
+            'from':    m.get('from_info', ''),
+            'body':    m.get('detail', ''),
+        })
+    return results
+
 def count_shiryo(school_data, year, month):
     results = []
     for item in school_data:
@@ -397,7 +418,7 @@ def generate_unified_mail_section(mails, filter_categories=None):
         account = he(m.get('account', ''))
         meta = f'{_format_mail_datetime(m.get("date",""))}　→　{he(m.get("to",""))}'
         block_btn = (f'<button class="archive-btn" title="今後この送信元を非表示にする" '
-                     f'onclick="event.stopPropagation();blockUnifiedSender(\'{account}\',\'{domain}\')">🚫</button>'
+                     f'onclick="event.stopPropagation();blockUnifiedSender(\'{account}\',\'{domain}\')">✕</button>'
                      if domain else '')
         parts.append(f"""        <div class="mail-item {cls}" id="{mid}" data-domain="{domain}" data-account="{account}">
           <div class="mail-header" onclick="toggleDetail('{mid}')">
@@ -991,7 +1012,7 @@ function toggleDetail(id){const el=document.getElementById(id);if(el)el.classLis
     </div>
   </div>
   <div class="card full" id="unified-blocklist-card" style="padding:12px 16px;display:none;margin-top:8px;">
-    <div class="card-title" style="margin-bottom:6px;">🚫 今後表示しない送信元</div>
+    <div class="card-title" style="margin-bottom:6px;">✕ 今後表示しない送信元</div>
     <div id="unified-blocklist-list"></div>
   </div>
 
@@ -1461,10 +1482,10 @@ try:
 except Exception as e:
     print(f"school JSON読み込みエラー: {e}")
 
-n_training = judgment.get('training_count', 0)
 kpi_note   = judgment.get('kpi_note', '')
 
-# 2b) 統合メール一覧（kanesaka_activia / kanesaka.agni / agniyoga.ad の3アカウントをAIが仕分け済み）
+# 2b) 統合メール一覧（kanesaka_activia / kanesaka.agni / agniyoga.ad / zipyoga / kanesaka_agniyoga の
+# 5アカウントをAIが仕分け済み）
 # ※このファイルは「メール反映」ボタン（ci_fetch_and_judge.py）が更新する。
 #   ローカルでrebuild_all.pyを実行してもここでは再取得しない
 #   （手元の古いコピーでライブのAI判定済みデータを上書きしないため）。
@@ -1478,6 +1499,10 @@ try:
     print(f"統合メール: {len(unified_mails)}件（要対応{sum(1 for m in unified_mails if m.get('category')=='action')}件）")
 except Exception as e:
     print(f"統合メールJSON読み込みエラー（「メール反映」未実行の可能性）: {e}")
+
+training_list = count_training_contracts(unified_mails, year, month)
+n_training = len(training_list)
+print(f"養成講座契約（今月）: {n_training}件")
 
 # 2d) Googleカレンダー（kanesaka.agni@gmail.com プライマリ）
 calendar_events = []
