@@ -510,6 +510,8 @@ def judge_account(account_key, account_label, mails, rules):
     for mail, category, icon, title, sub, phishing, recommend in decided:
         if category == 'hide':
             continue
+        if '&lt;' in mail.get('from', '') or '&lt;' in mail.get('body', ''):
+            print(f'DEBUG_ESCAPE_FOUND account={account_key} from={mail["from"]!r}')
         mid = f'm-{account_key}-' + re.sub(r'[^a-z0-9]', '', mail['id'])[:24]
         if phishing:
             title = '⚠️【フィッシング注意】' + title
