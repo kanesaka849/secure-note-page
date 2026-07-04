@@ -363,6 +363,18 @@ def _schedule_category(summary):
         return ('出張', 'teal')
     return ('プライベート', 'purple')
 
+def _parse_event_dt(ev):
+    """カレンダーイベントのstart文字列をJSTのdatetimeに変換（終日イベントは日付のみ）。パース不可はNone。"""
+    start = ev.get('start', '')
+    if not start:
+        return None
+    try:
+        if ev.get('all_day'):
+            return datetime.strptime(start[:10], '%Y-%m-%d')
+        return datetime.fromisoformat(start.replace('Z', '+00:00')).astimezone(JST).replace(tzinfo=None)
+    except Exception:
+        return None
+
 def generate_schedule_section(events, today_dt):
     if not events:
         return '    <div class="card"><div style="font-size:12px;color:var(--sub);padding:6px 0;">予定なし、または未取得</div></div>'
@@ -371,15 +383,8 @@ def generate_schedule_section(events, today_dt):
     for ev in events:
         if '定休日' in ev.get('summary', ''):
             continue  # 「金坂定休日」等の定休日表示は不要（ユーザー指示）
-        start = ev.get('start', '')
-        if not start:
-            continue
-        try:
-            if ev.get('all_day'):
-                dt = datetime.strptime(start[:10], '%Y-%m-%d')
-            else:
-                dt = datetime.fromisoformat(start.replace('Z', '+00:00')).astimezone(JST).replace(tzinfo=None)
-        except Exception:
+        dt = _parse_event_dt(ev)
+        if dt is None:
             continue
         by_month.setdefault((dt.year, dt.month), []).append((dt, ev))
 
@@ -403,6 +408,40 @@ def generate_schedule_section(events, today_dt):
         <div class="schedule-content">{tag_html}{summary_html} {time_label}{loc}</div>
       </div>""")
         parts.append('    </div>')
+    return '\n'.join(parts)
+
+def generate_today_calendar_tasks(events, today_dt):
+    """今日のカレンダー予定を「タスク一覧」にもタスクカードとして追加表示する
+    （ユーザー要望：カレンダーの今日の予定はタスク一覧にも入れて）。
+    ✓ボタンはarchiveItem()経由でdone_state.jsonに記録される既存の仕組みをそのまま使う。"""
+    todays = []
+    for ev in events:
+        if '定休日' in ev.get('summary', ''):
+            continue
+        dt = _parse_event_dt(ev)
+        if dt is None or dt.date() != today_dt:
+            continue
+        todays.append((dt, ev))
+    if not todays:
+        return ''
+    todays.sort(key=lambda x: x[0])
+    parts = []
+    for dt, ev in todays:
+        eid = ev.get('id', '')
+        tid = f'cal-{eid}' if eid else f'cal-{dt.strftime("%Y%m%d%H%M")}'
+        summary_text = ev.get('summary', '')
+        cat_label, cat_color = _schedule_category(summary_text)
+        is_critical = (cat_label == '裁判')
+        time_label = '' if ev.get('all_day') else dt.strftime('%H:%M〜')
+        tag_html = f'<span class="schedule-tag badge-{cat_color}">{cat_label}</span> '
+        title_html = f'<strong style="color:var(--red);">⚠️ {he(summary_text)}</strong>' if is_critical else he(summary_text)
+        cls = 'task-card extra schedule-critical' if is_critical else 'task-card extra'
+        parts.append(f"""        <div class="{cls}" id="{tid}">
+          <div class="task-header">
+            <div class="task-title">{tag_html}{title_html} {time_label}</div>
+            <button class="archive-btn btn-check" title="完了" onclick="event.stopPropagation();archiveItem('{tid}')">✓</button>
+          </div>
+        </div>""")
     return '\n'.join(parts)
 
 # ── HTML Generators ─────────────────────────────────────────────────────
@@ -461,6 +500,7 @@ def generate_unified_mail_section(mails, filter_categories=None):
         account = he(m.get('account', ''))
         category = he(m.get('category', 'unclear'))
         sender_label = he_attr(_extract_sender_label(m.get('from_info', '')).replace('\\', '\\\\').replace("'", "\\'"))
+        title_js = he_attr(m.get('title', '').replace('\\', '\\\\').replace("'", "\\'"))
         meta = f'{_format_mail_datetime(m.get("date",""))}　→　{he(m.get("to",""))}'
         block_btn = (f'<button class="archive-btn btn-x" title="今後この送信元を完全に非表示にする（全カテゴリ）" '
                      f'onclick="event.stopPropagation();blockUnifiedSender(\'{account}\',\'{domain}\',\'{category}\',\'{sender_label}\')">✕</button>'
@@ -468,6 +508,8 @@ def generate_unified_mail_section(mails, filter_categories=None):
         block_cat_btn = (f'<button class="archive-btn btn-triangle" title="今後この送信元の「{category}」カテゴリだけ非表示にする" '
                           f'onclick="event.stopPropagation();blockCategoryUnifiedSender(\'{account}\',\'{domain}\',\'{category}\',\'{sender_label}\')">△</button>'
                           if domain else '')
+        add_task_btn = (f'<button class="archive-btn btn-add-task" title="タスク一覧に追加" '
+                         f'onclick="event.stopPropagation();addMailToTaskList(\'{mid}\',\'{title_js}\',this)">📋+</button>')
         recommend = he(m.get('recommend', ''))
         recommend_html = f'<div class="mail-recommend">💡 {recommend}</div>' if recommend else ''
         copy_text = he_attr(f"{m.get('from_info','')}\n\n{m.get('detail','')}")
@@ -476,6 +518,7 @@ def generate_unified_mail_section(mails, filter_categories=None):
             <div class="mail-title"><span class="acct-badge {acct_cls}">{acct_label}</span> {he(m.get('title',''))}</div>
             {block_btn}
             {block_cat_btn}
+            {add_task_btn}
             <button class="archive-btn btn-check" title="この1件だけ完了・非表示にする（送信元は今後も表示されます）" onclick="event.stopPropagation();archiveItem('{mid}')">✓</button>
           </div>
           <div class="mail-to">{meta}</div>
@@ -669,6 +712,9 @@ DASHBOARD_TEMPLATE = """<!DOCTYPE html>
   .task-card.paused  { border-left: 4px solid var(--gray);   background: #fafafa; }
   .task-card.done    { border-left: 4px solid var(--blue);   background: #f0f8ff; opacity: 0.7; }
   .task-card.routine { border-left: 4px solid var(--orange); background: #fff8f0; }
+  .task-card.extra   { border-left: 4px solid var(--teal);   background: #f7fffe; }
+  .btn-add-task { color: var(--teal); border-color: var(--teal); }
+  .btn-add-task.pressed { background: var(--teal); color: white; }
   .task-title { font-size: 13px; font-weight: bold; margin-bottom: 4px; display: flex; align-items: center; gap: 6px; transition: color 0.15s; }
   .task-next  { font-size: 11px; color: var(--sub); line-height: 1.4; margin-top: 4px; }
   .task-next strong { color: var(--orange); }
@@ -965,6 +1011,28 @@ function _sah(list){localStorage.setItem(AH_KEY,JSON.stringify(list));}
 function toggleAdhocForm(col){const f=document.getElementById('adhoc-form-'+col);if(f)f.classList.toggle('open');}
 function addAdhoc(col){const n=document.getElementById('adhoc-name-'+col).value.trim(),d=document.getElementById('adhoc-due-'+col).value.trim();if(!n)return;const list=_gah(),id='ca-'+Date.now();list.push({id,name:n,due:d,col});_sah(list);renderCustomAdhoc();document.getElementById('adhoc-name-'+col).value='';document.getElementById('adhoc-due-'+col).value='';document.getElementById('adhoc-form-'+col).classList.remove('open');}
 function deleteAdhoc(id){if(!confirm('このタスクを削除しますか？（後で元に戻せます）'))return;const t=_gah().find(function(x){return x.id===id;});_sah(_gah().filter(function(x){return x.id!==id;}));if(t){const list=_gtr();list.push({id:t.id,kind:'adhoc',name:t.name,due:t.due||'',col:t.col,deletedAt:Date.now()});_str(list);}renderCustomAdhoc();renderTrash();}
+const MT_KEY='ks_mail_tasks_v1';
+function _gmt(){try{return JSON.parse(localStorage.getItem(MT_KEY)||'[]');}catch{return[];}}
+function _smt(list){localStorage.setItem(MT_KEY,JSON.stringify(list));}
+function addMailToTaskList(mailId,title,btn){
+  const taskId='mt-'+mailId;
+  const list=_gmt();
+  if(!list.find(t=>t.id===taskId)){list.push({id:taskId,name:title,mailId,addedAt:Date.now()});_smt(list);renderMailTasks();}
+  if(btn){btn.textContent='✓追加済';btn.disabled=true;btn.classList.add('pressed');}
+}
+function deleteMailTask(id){_smt(_gmt().filter(t=>t.id!==id));renderMailTasks();}
+function renderMailTasks(){
+  const el=document.getElementById('custom-mail-tasks');if(!el)return;
+  const now=Date.now(),H12=12*3600*1000;
+  const doneMap={};_gd().forEach(function(d){doneMap[d.id]=d.completedAt;});
+  const list=_gmt();
+  el.innerHTML=list.map(t=>{
+    const doneAt=doneMap[t.id];
+    if(doneAt&&(now-doneAt>=H12))return '';
+    const cls=doneAt?'task-card extra archived':'task-card extra';
+    return `<div class="${cls}" id="${t.id}"><div class="task-header"><div class="task-title"><span class="badge badge-blue">📧</span> ${_esc(t.name)}</div><button class="archive-btn btn-check" title="完了" onclick="event.stopPropagation();archiveItem('${t.id}')">✓</button><button class="rt-del-btn" onclick="event.stopPropagation();deleteMailTask('${t.id}')" title="削除">✕</button></div></div>`;
+  }).join('');
+}
 const TR_KEY='ks_trash_v1';
 function _gtr(){try{return JSON.parse(localStorage.getItem(TR_KEY)||'[]');}catch{return[];}}
 function _str(list){localStorage.setItem(TR_KEY,JSON.stringify(list));}
@@ -1080,6 +1148,8 @@ function fallbackCopy(text,done){
     <div class="fv-col">
       <div class="section-head">📋 タスク一覧</div>
       <div class="card scroll-card">
+        <div id="custom-mail-tasks"></div>
+###TODAY_CALENDAR_TASKS###
 ###ROUTINE_TASKS###
         <div class="task-card active" id="t-5">
           <div class="task-header" onclick="toggleDetail('t-5')">
@@ -1319,7 +1389,7 @@ function fallbackCopy(text,done){
   applyDoneState(_gd());
   trashPurgeOld();
   applyBuiltinRoutineDismissed();
-  renderCustomRoutines();renderCustomAdhoc();renderTrash();
+  renderCustomRoutines();renderCustomAdhoc();renderMailTasks();renderTrash();
   loadApiCost();
   applyUnifiedBlocklist();
   if(GH_TOKEN){ghGetSenderRules().then(function(r){
@@ -1829,6 +1899,7 @@ kpi_html         = generate_kpi_section(
 )
 routine_html = generate_routine_tasks(now.date())
 schedule_html = generate_schedule_section(calendar_events, now.date())
+today_calendar_tasks_html = generate_today_calendar_tasks(calendar_events, now.date())
 
 # 4) Assemble Dashboard HTML
 dashboard_html = (DASHBOARD_TEMPLATE
@@ -1841,6 +1912,7 @@ dashboard_html = (DASHBOARD_TEMPLATE
     .replace('###CALENDAR_FETCHED###', f'取得: {calendar_fetched_at}')
     .replace('###KPI_SECTION###', kpi_html)
     .replace('###ROUTINE_TASKS###', routine_html)
+    .replace('###TODAY_CALENDAR_TASKS###', today_calendar_tasks_html)
     .replace('###MONTH###', f'{month}月')
     .replace('###UPDATED###', today)
     .replace('###GITHUB_TOKEN###', gh_token))
