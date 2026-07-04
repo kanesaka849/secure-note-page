@@ -69,7 +69,9 @@
     "infomail@onamae.com": "hide",
     "qoo10info@qoo10.jp": "hide",
     "hib_shinkin@ssc.facetoface.ne.jp": "action",
-    "info@mail.rakuten-card.co.jp": "hide"
+    "info@mail.rakuten-card.co.jp": "hide",
+    "norely@ymallstore.jp": "hide",
+    "stories-recap@mail.instagram.com": "hide"
   },
   "kanesaka_agni": {
     "no-reply@sg.newsletter.agoda-emails.com": "hide",
