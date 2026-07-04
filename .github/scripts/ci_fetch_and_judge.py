@@ -167,14 +167,14 @@ def fetch_pop3_account(user, password, server, port, n):
         pop.pass_(password)
         count, _ = pop.stat()
         _, msg_list, _ = pop.list()
-        ids = [line.split()[0] for line in msg_list]
+        ids = [int(line.split()[0]) for line in msg_list]
         print(f'[{user}] {count}件中、最新{n}件取得')
         for mid in ids[-n:][::-1]:
             _, lines, _ = pop.retr(mid)
             msg = email.message_from_bytes(b'\n'.join(lines))
             from_str = dec(msg.get('From', ''))
             results.append({
-                'id': mid.decode() if isinstance(mid, bytes) else str(mid),
+                'id': str(mid),
                 'subject': dec(msg.get('Subject', '')),
                 'from': from_str,
                 'domain': _extract_domain(from_str),
