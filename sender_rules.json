@@ -83,7 +83,31 @@
   "agniyoga_ad": {
     "yui.m@google.com": "unclear"
   },
-  "zipyoga": {},
+  "zipyoga": {
+    "mailer-daemon@mail-gw-fk005.vdone.jp": "unclear",
+    "mailer-daemon@mailgateway.gmoserver.jp (mail delivery system)": "unclear",
+    "zipyoga.jp-helpdesk-message_notification-service_439c3e19-ee0f-4091-b377@naginata.jp": "unclear",
+    "salablancamirian@gmail.com": "unclear",
+    "mt.yokoko@gmail.com": "unclear",
+    "rlc-info@rakus-lc.co.jp": "unclear",
+    "mailer-daemon@smtp17.gmoserver.jp (mail delivery system)": "unclear",
+    "irsv@agniyoga-yoyaku.jp": "unclear",
+    "irsv@agniyoga.jp": "unclear",
+    "info@zipyoga.jp": "unclear",
+    "noreply@nifty.com": "unclear",
+    "info@ibj-marriage.jp": "unclear",
+    "ml-lycbiz-marketing@lycorp.co.jp": "unclear",
+    "agniall@googlegroups.com": "unclear",
+    "ml-lyforbiz-marketing@mkt.lycorp.co.jp": "unclear",
+    "info@jinjibu-event.jp": "unclear",
+    "info@j-pet-hotel.jp": "unclear",
+    "support@blastmail.jp": "unclear",
+    "postmaster@au.com": "unclear",
+    "ml-lyforbiz-marketing@lycorp.co.jp": "unclear",
+    "dl_noreply_event@linecorp.com": "unclear",
+    "takahashi.daigo.helena@gmail.com": "unclear",
+    "mailer-daemon@icloud.com": "unclear"
+  },
   "kanesaka_agniyoga": {
     "info@chiba-happyhouse.com": "unclear",
     "recommend@jleague.jp": "unclear",
