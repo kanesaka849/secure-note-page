@@ -379,6 +379,10 @@ def generate_schedule_section(events, today_dt):
 def he(s):
     return s.replace('&','&amp;').replace('<','&lt;').replace('>','&gt;').replace('"','&quot;').replace('\n','<br>')
 
+def he_attr(s):
+    """HTML属性値埋め込み用（改行は<br>化せずそのまま保持＝コピー機能のdata属性等に使用）"""
+    return s.replace('&','&amp;').replace('<','&lt;').replace('>','&gt;').replace('"','&quot;')
+
 ACCOUNT_LABELS = {
     'kanesaka_activia': ('Activia', 'acct-activia'),
     'kanesaka_agni': ('個人', 'acct-kanesaka-agni'),
@@ -419,13 +423,14 @@ def generate_unified_mail_section(mails, filter_categories=None):
         category = he(m.get('category', 'unclear'))
         meta = f'{_format_mail_datetime(m.get("date",""))}　→　{he(m.get("to",""))}'
         block_btn = (f'<button class="archive-btn" title="今後この送信元を完全に非表示にする（全カテゴリ）" '
-                     f'onclick="event.stopPropagation();blockUnifiedSender(\'{account}\',\'{domain}\')">✕</button>'
+                     f'onclick="event.stopPropagation();blockUnifiedSender(\'{account}\',\'{domain}\',\'{category}\')">✕</button>'
                      if domain else '')
         block_cat_btn = (f'<button class="archive-btn" title="今後この送信元の「{category}」カテゴリだけ非表示にする" '
                           f'onclick="event.stopPropagation();blockCategoryUnifiedSender(\'{account}\',\'{domain}\',\'{category}\')">△</button>'
-                          if domain else '')
+                          if domain and category != 'action' else '')
         recommend = he(m.get('recommend', ''))
         recommend_html = f'<div class="mail-recommend">💡 {recommend}</div>' if recommend else ''
+        copy_text = he_attr(f"{m.get('from_info','')}\n\n{m.get('detail','')}")
         parts.append(f"""        <div class="mail-item {cls}" id="{mid}" data-domain="{domain}" data-account="{account}" data-category="{category}">
           <div class="mail-header" onclick="toggleDetail('{mid}')">
             <div class="mail-title"><span class="acct-badge {acct_cls}">{acct_label}</span> {he(m.get('title',''))}</div>
@@ -436,7 +441,7 @@ def generate_unified_mail_section(mails, filter_categories=None):
           <div class="mail-to">{meta}</div>
           <div class="mail-sub">{he(m.get('sub',''))}</div>
           {recommend_html}
-          <div class="mail-detail"><div class="detail-from">{he(m.get('from_info',''))}</div><div class="detail-body">{he(m.get('detail',''))}</div></div>
+          <div class="mail-detail"><button class="copy-btn" title="メール内容をコピー" onclick="event.stopPropagation();copyMailText(this)" data-copy="{copy_text}">📋 コピー</button><div class="detail-from">{he(m.get('from_info',''))}</div><div class="detail-body">{he(m.get('detail',''))}</div></div>
         </div>""")
     return '\n'.join(parts)
 
@@ -604,6 +609,8 @@ DASHBOARD_TEMPLATE = """<!DOCTYPE html>
   .mail-item.open .mail-detail { display: block; }
   .mail-detail .detail-from { color: var(--sub); margin-bottom: 4px; }
   .mail-detail .detail-body { margin-top: 4px; }
+  .copy-btn { float: right; font-size: 10px; padding: 3px 8px; border: 1px solid var(--border); border-radius: 5px; background: #fff; color: var(--sub); cursor: pointer; }
+  .copy-btn:hover { background: #f1f5f9; }
   .mail-all-link { margin-top: 8px; text-align: right; border-top: 1px solid var(--border); padding-top: 7px; font-size: 12px; }
   .mail-all-link a { color: var(--blue); text-decoration: none; }
   .task-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 6px; cursor: pointer; }
@@ -666,6 +673,8 @@ DASHBOARD_TEMPLATE = """<!DOCTYPE html>
   .archived .adhoc-text, .archived .task-title, .archived .mail-title, .archived .routine-name { color: #4b5563; }
   .archived .mail-sub, .archived .task-next, .archived .adhoc-due, .archived .routine-freq, .archived .detail-from, .archived .detail-body { color: #6b7280; }
   .done-time-badge { font-size: 10px; font-weight: normal; color: #6b7280; margin-left: 6px; }
+  .undo-inline-btn { font-size: 10px; padding: 1px 6px; margin-left: 4px; border: 1px solid #9ca3af; border-radius: 4px; background: #fff; color: #374151; cursor: pointer; }
+  .undo-inline-btn:hover { background: #f3f4f6; }
   .undo-btn { display:none; font-size:10px; color:var(--blue); background:none; border:1px solid var(--blue); border-radius:3px; cursor:pointer; padding:1px 5px; margin-left:6px; vertical-align:middle; }
   .archived .undo-btn { display:inline; }
   .hist-item { display:flex; gap:8px; padding:5px 0; border-bottom:1px solid var(--border); font-size:12px; color:var(--sub); align-items:baseline; }
@@ -764,16 +773,17 @@ function applyUnifiedBlocklist(){
   // ここでは「今後表示しない送信元」管理UIの再描画のみ行う。
   renderUnifiedBlocklistUI();
 }
-function _archiveMatching(selector){
+function _archiveMatching(selector,reason,meta){
   document.querySelectorAll(selector).forEach(function(el){
-    if(!el.classList.contains('archived'))archiveItem(el.id);
+    if(!el.classList.contains('archived'))archiveItem(el.id,reason,meta);
   });
 }
-function blockUnifiedSender(account,domain){
+function blockUnifiedSender(account,domain,category){
   if(!domain)return;
+  if(category==='action'){alert('現在「要対応」のメールです。送信元を丸ごと非表示にすると今後の要対応メールも見えなくなるため、代わりに△（このカテゴリだけ非表示）をお使いください');return;}
   const key=account+'|'+domain;
   const local=_gub();if(!local.includes(key)){local.push(key);_sub(local);}
-  _archiveMatching('.mail-item[data-account="'+account+'"][data-domain="'+domain+'"]');
+  _archiveMatching('.mail-item[data-account="'+account+'"][data-domain="'+domain+'"]','block',{account:account,domain:domain});
   renderUnifiedBlocklistUI();
   if(GH_TOKEN){ghGetSenderRules().then(function(r){
     const rules=r.rules;rules[account]=rules[account]||{};rules[account][domain]='hide';
@@ -782,9 +792,10 @@ function blockUnifiedSender(account,domain){
 }
 function blockCategoryUnifiedSender(account,domain,category){
   if(!domain||!category)return;
+  if(category==='action'){alert('「要対応」カテゴリは非表示にできません（重要な連絡を見落とす危険があるため）');return;}
   const key=account+'|'+domain+'|'+category;
   const local=_gubCat();if(!local.includes(key)){local.push(key);_subCat(local);}
-  _archiveMatching('.mail-item[data-account="'+account+'"][data-domain="'+domain+'"][data-category="'+category+'"]');
+  _archiveMatching('.mail-item[data-account="'+account+'"][data-domain="'+domain+'"][data-category="'+category+'"]','blockCategory',{account:account,domain:domain,category:category});
   renderUnifiedBlocklistUI();
   if(GH_TOKEN){ghGetSenderRules().then(function(r){
     const rules=r.rules;rules[account]=rules[account]||{};
@@ -837,12 +848,20 @@ function fmtDoneTime(ts){
   var d=new Date(ts);
   return (d.getMonth()+1)+'/'+d.getDate()+' '+String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');
 }
-function addDoneBadge(el,completedAt){
+var DONE_BADGE_LABEL={done:'✓完了',block:'✕非表示（送信元）',blockCategory:'△非表示（カテゴリ）'};
+function addDoneBadge(el,completedAt,reason){
   var titleEl=el.querySelector('.mail-title,.task-title,.adhoc-text,.routine-name');
   if(!titleEl)return;
   var badge=titleEl.querySelector('.done-time-badge');
   if(!badge){badge=document.createElement('span');badge.className='done-time-badge';titleEl.appendChild(badge);}
-  badge.textContent=' ✓完了 '+fmtDoneTime(completedAt);
+  var label=DONE_BADGE_LABEL[reason]||DONE_BADGE_LABEL.done;
+  badge.textContent=' '+label+' '+fmtDoneTime(completedAt)+' ';
+  var undo=badge.querySelector('.undo-inline-btn');
+  if(!undo){
+    undo=document.createElement('button');undo.className='undo-inline-btn';undo.textContent='取消';undo.title='この操作を取り消す';
+    undo.onclick=function(e){e.stopPropagation();undoItem(el.id);};
+    badge.appendChild(undo);
+  }
 }
 function applyDoneState(list){
   var now=Date.now(),H12=12*3600*1000,H7D=7*24*3600*1000;
@@ -853,7 +872,7 @@ function applyDoneState(list){
     el.classList.remove('archived');el.style.display='';
     if(now-item.completedAt<H12){
       el.classList.add('archived');
-      addDoneBadge(el,item.completedAt);
+      addDoneBadge(el,item.completedAt,item.reason);
     }else{
       el.style.display='none';
     }
@@ -922,18 +941,43 @@ function renderCustomAdhoc(){
     }).join('');
   });
 }
-function archiveItem(id){
+function archiveItem(id,reason,meta){
   const el=document.getElementById(id);
   if(!el||el.classList.contains('archived'))return;
   const textEl=el.querySelector('.adhoc-text,.task-next,.task-title,.mail-title');
   const text=textEl?textEl.textContent.trim().slice(0,60):'';
-  const item={id,text,completedAt:Date.now()};
+  const item={id,text,completedAt:Date.now(),reason:reason||'done'};
+  if(meta)item.meta=meta;
   const list=_gd();if(!list.find(i=>i.id===id)){list.push(item);_sd(list);}
   el.classList.add('archived');
-  addDoneBadge(el,item.completedAt);
+  addDoneBadge(el,item.completedAt,item.reason);
   if(GH_TOKEN){ghGet().then(function(r){const merged=mergeDone(_gd(),r.list);_sd(merged);ghPut(merged,r.sha);});}
 }
+function undoItem(id){
+  const list=_gd();const item=list.find(function(i){return i.id===id;});
+  const el=document.getElementById(id);
+  _sd(list.filter(function(i){return i.id!==id;}));
+  if(el){el.classList.remove('archived');el.style.display='';const b=el.querySelector('.done-time-badge');if(b)b.remove();}
+  if(GH_TOKEN){ghGet().then(function(r){const merged=_gd().length?mergeDone(_gd(),r.list.filter(function(i){return i.id!==id;})):r.list.filter(function(i){return i.id!==id;});ghPut(merged,r.sha);});}
+  if(item&&item.meta){
+    const m=item.meta;
+    if(item.reason==='block')unblockUnifiedSender(m.account,m.domain);
+    else if(item.reason==='blockCategory')unblockCategoryUnifiedSender(m.account,m.domain,m.category);
+  }
+}
 function toggleDetail(id){const el=document.getElementById(id);if(el)el.classList.toggle('open');}
+function copyMailText(btn){
+  const text=btn.getAttribute('data-copy')||'';
+  const done=function(){const orig=btn.textContent;btn.textContent='✓ コピーしました';setTimeout(function(){btn.textContent=orig;},1500);};
+  if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(text).then(done).catch(function(){fallbackCopy(text,done);});}
+  else{fallbackCopy(text,done);}
+}
+function fallbackCopy(text,done){
+  const ta=document.createElement('textarea');ta.value=text;ta.style.position='fixed';ta.style.opacity='0';
+  document.body.appendChild(ta);ta.focus();ta.select();
+  try{document.execCommand('copy');}catch(e){}
+  document.body.removeChild(ta);done();
+}
 </script>
 
 <header>
