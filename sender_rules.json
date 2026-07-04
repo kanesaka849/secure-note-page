@@ -65,7 +65,11 @@
     "facebookmail.com": "hide",
     "cityheaven.net": "hide",
     "gmail.com": "hide",
-    "point-notice-w@pointcard.rakuten.co.jp": "info"
+    "point-notice-w@pointcard.rakuten.co.jp": "info",
+    "infomail@onamae.com": "hide",
+    "qoo10info@qoo10.jp": "hide",
+    "hib_shinkin@ssc.facetoface.ne.jp": "action",
+    "info@mail.rakuten-card.co.jp": "hide"
   },
   "kanesaka_agni": {
     "no-reply@sg.newsletter.agoda-emails.com": "hide",
@@ -92,7 +96,8 @@
     "info-api@musashinobank.co.jp": "info",
     "info@mail.renet.jp": "hide",
     "info@agniyoga.jp": "hide",
-    "info@form.jrepoint.jp": "hide"
+    "info@form.jrepoint.jp": "hide",
+    "trial@agniyoga.jp": "info"
   },
   "agniyoga_ad": {
     "yui.m@google.com": "unclear"
