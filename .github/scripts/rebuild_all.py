@@ -562,10 +562,10 @@ def generate_kpi_section(trials, shiryo_list, setsumeikai_list, n_training, kpi_
                     'google': 'Google', 'google-ads': 'Google広告', 'googleads': 'Google広告',
                     'instagram': 'Instagram', 'facebook': 'Facebook', 'ig': 'Instagram',
                     'line': 'LINE', 'yahoo': 'Yahoo', 'email': 'メール', 'mail': 'メール',
-                    'direct': 'Direct', 'organic': '自然検索', 'referral': '紹介サイト',
+                    'direct': '直接', 'organic': '自然検索', 'referral': '紹介サイト',
                 }
-                # source欄が空＝流入元記録なし＝直接アクセス(Direct)として明示表示する
-                label = source_labels.get(utm_source.lower(), utm_source) if utm_source else 'Direct'
+                # source欄が空＝流入元記録なし＝直接アクセス(直接)として明示表示する
+                label = source_labels.get(utm_source.lower(), utm_source) if utm_source else '直接'
                 name += f' <span style="font-size:12px;font-weight:bold;color:var(--blue);">【{he(label)}】</span>'
             ds   = he(_extract_date_short(item))
             detail = _mail_card(item)
