@@ -796,7 +796,7 @@ function blockUnifiedSender(account,domain,category){
 function blockCategoryUnifiedSender(account,domain,category){
   if(!domain||!category)return;
   if(category==='action'){
-    if(!confirm('「'+domain+'」からの「要対応」カテゴリを今後すべて非表示にします。\n同じ送信元・同じカテゴリの別の重要な連絡も自動的に見えなくなる可能性があります。\n本当によろしいですか？'))return;
+    if(!confirm('「'+domain+'」からの「要対応」カテゴリを今後すべて非表示にします。\\n同じ送信元・同じカテゴリの別の重要な連絡も自動的に見えなくなる可能性があります。\\n本当によろしいですか？'))return;
   }
   const key=account+'|'+domain+'|'+category;
   const local=_gubCat();if(!local.includes(key)){local.push(key);_subCat(local);}
