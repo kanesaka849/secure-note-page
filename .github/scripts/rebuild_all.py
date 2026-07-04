@@ -157,6 +157,7 @@ def is_this_month(date_str, year, month):
 def count_trials(trial_data, year, month):
     dummy_emails = {'manin@agniyoga.jp', 'kyoko.watanabe@agniyoga.jp'}
     dummy_names  = {'満員', 'テスト'}
+    test_keywords = ('テスト', '金坂')  # 社内テスト予約（氏名に含まれる場合はカウント対象外）
     results = []
     for item in trial_data:
         if '体験受付:' not in item.get('from', ''):
@@ -169,7 +170,8 @@ def count_trials(trial_data, year, month):
         if name_m:
             name = name_m.group(1).strip()
             mail = mail_m.group(1).strip() if mail_m else ''
-            if name not in dummy_names and mail not in dummy_emails:
+            if (name not in dummy_names and mail not in dummy_emails
+                    and not any(k in name for k in test_keywords)):
                 results.append({
                     'subject':  item['subject'],
                     'date':     item.get('date', ''),
@@ -520,7 +522,7 @@ def generate_kpi_section(trials, shiryo_list, setsumeikai_list, n_training, kpi_
                         'direct': '直接', 'organic': '自然検索', 'referral': '紹介サイト',
                     }
                     label = source_labels.get(utm_source.lower(), utm_source)
-                    name += f' <span class="badge badge-blue" style="font-size:9px;padding:1px 5px;">{he(label)}</span>'
+                    name += f' <span style="font-size:12px;font-weight:bold;color:var(--blue);">【{he(label)}】</span>'
             ds   = he(_extract_date_short(item))
             detail = _mail_card(item)
             parts.append(
@@ -533,8 +535,8 @@ def generate_kpi_section(trials, shiryo_list, setsumeikai_list, n_training, kpi_
         return ''.join(parts)
 
     t_rows = mail_rows(trials,       'km-trial', show_source=True)
-    s_rows = mail_rows(shiryo_list,  'km-shiryo')
-    e_rows = mail_rows(setsumeikai_list, 'km-setsu')
+    s_rows = mail_rows(shiryo_list,  'km-shiryo', show_source=True)
+    e_rows = mail_rows(setsumeikai_list, 'km-setsu', show_source=True)
 
     return f"""      <div class="kpi-grid">
         <div class="card kpi-card"><div class="kpi-label">📧 体験</div><div class="kpi-val" style="color:var(--teal);">{n_trial}</div><div class="kpi-unit">件</div></div>
