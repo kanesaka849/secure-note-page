@@ -52,7 +52,8 @@
     "noreply@design-ac.net": "unclear",
     "info@m.nojima.co.jp": "hide",
     "cyber-j@jaccscard.co.jp": "action",
-    "admin@onamae.com": "action"
+    "admin@onamae.com": "action",
+    "mailmagazine@furunavi.jp": "hide"
   },
   "kanesaka_agni": {
     "no-reply@sg.newsletter.agoda-emails.com": "hide",
@@ -78,7 +79,8 @@
     "service-jp@paypal.com": "action",
     "info-api@musashinobank.co.jp": "info",
     "info@mail.renet.jp": "hide",
-    "info@agniyoga.jp": "hide"
+    "info@agniyoga.jp": "hide",
+    "info@form.jrepoint.jp": "hide"
   },
   "agniyoga_ad": {
     "yui.m@google.com": "unclear"
