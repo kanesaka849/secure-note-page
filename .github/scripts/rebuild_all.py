@@ -373,9 +373,15 @@ CATEGORY_CLASS = {
 }
 CATEGORY_ORDER = {'action': 0, 'info': 1, 'unclear': 2, 'maybe_spam': 3}
 
+def _format_mail_datetime(date_str):
+    dt = parse_mail_date(date_str)
+    if dt:
+        return f'{dt.month}/{dt.day} {dt.strftime("%H:%M")}'
+    return he(date_str[:16]) if date_str else ''
+
 def generate_unified_mail_section(mails, filter_categories=None):
     """全アカウント統合のメール一覧をレンダリングする。
-    filter_categoriesを指定すると該当カテゴリのみ（ファーストビューの「要対応」抜粋等に使用）。"""
+    filter_categoriesを指定すると該当カテゴリのみ（ファーストビューの「要対応」抜粋・カテゴリ別の枠等に使用）。"""
     items = mails
     if filter_categories:
         items = [m for m in items if m.get('category') in filter_categories]
@@ -389,15 +395,17 @@ def generate_unified_mail_section(mails, filter_categories=None):
         acct_label, acct_cls = ACCOUNT_LABELS.get(m.get('account', ''), ('?', ''))
         domain = he(m.get('domain', ''))
         account = he(m.get('account', ''))
+        meta = f'{_format_mail_datetime(m.get("date",""))}　→　{he(m.get("to",""))}'
         block_btn = (f'<button class="archive-btn" title="今後この送信元を非表示にする" '
                      f'onclick="event.stopPropagation();blockUnifiedSender(\'{account}\',\'{domain}\')">🚫</button>'
                      if domain else '')
         parts.append(f"""        <div class="mail-item {cls}" id="{mid}" data-domain="{domain}" data-account="{account}">
           <div class="mail-header" onclick="toggleDetail('{mid}')">
-            <div class="mail-title"><span class="acct-badge {acct_cls}">{acct_label}</span>{m.get('icon','')} {he(m.get('title',''))}</div>
+            <div class="mail-title"><span class="acct-badge {acct_cls}">{acct_label}</span> {he(m.get('title',''))}</div>
             {block_btn}
             <button class="archive-btn" onclick="event.stopPropagation();archiveItem('{mid}')">✓</button>
           </div>
+          <div class="mail-to">{meta}</div>
           <div class="mail-sub">{he(m.get('sub',''))}</div>
           <div class="mail-detail"><div class="detail-from">{he(m.get('from_info',''))}</div><div class="detail-body">{he(m.get('detail',''))}</div></div>
         </div>""")
@@ -962,8 +970,25 @@ function toggleDetail(id){const el=document.getElementById(id);if(el)el.classLis
 
   <!-- ═══ 全メール一覧（AI仕分け・全アカウント統合） ═══ -->
   <div class="section-head" id="unified-mail">📬 全メール一覧（AI仕分け・全アカウント統合）<span style="font-size:10px;font-weight:normal;margin-left:8px;color:var(--sub);">###UNIFIED_MAIL_FETCHED###</span></div>
-  <div class="card">
-###UNIFIED_MAIL_SECTION###
+  <div class="first-view">
+    <div class="fv-col">
+      <div class="section-head">📧 お知らせ</div>
+      <div class="card scroll-card">
+###MAIL_INFO_SECTION###
+      </div>
+    </div>
+    <div class="fv-col">
+      <div class="section-head">❓ 宛先不明</div>
+      <div class="card scroll-card">
+###MAIL_UNCLEAR_SECTION###
+      </div>
+    </div>
+    <div class="fv-col">
+      <div class="section-head">⚠️ スパムか不明</div>
+      <div class="card scroll-card">
+###MAIL_MAYBE_SPAM_SECTION###
+      </div>
+    </div>
   </div>
   <div class="card full" id="unified-blocklist-card" style="padding:12px 16px;display:none;margin-top:8px;">
     <div class="card-title" style="margin-bottom:6px;">🚫 今後表示しない送信元</div>
@@ -1475,7 +1500,9 @@ except Exception as e:
 
 # 3) Generate dynamic sections
 action_mail_html = generate_unified_mail_section(unified_mails, filter_categories={'action'})
-unified_mail_html = generate_unified_mail_section(unified_mails)
+info_mail_html = generate_unified_mail_section(unified_mails, filter_categories={'info'})
+unclear_mail_html = generate_unified_mail_section(unified_mails, filter_categories={'unclear'})
+maybe_spam_mail_html = generate_unified_mail_section(unified_mails, filter_categories={'maybe_spam'})
 kpi_html         = generate_kpi_section(
     trials, shiryo_list, setsumeikai_list, n_training,
     kpi_note, today, month
@@ -1486,7 +1513,9 @@ schedule_html = generate_schedule_section(calendar_events, now.date())
 # 4) Assemble Dashboard HTML
 dashboard_html = (DASHBOARD_TEMPLATE
     .replace('###ACTION_MAIL_SECTION###', action_mail_html)
-    .replace('###UNIFIED_MAIL_SECTION###', unified_mail_html)
+    .replace('###MAIL_INFO_SECTION###', info_mail_html)
+    .replace('###MAIL_UNCLEAR_SECTION###', unclear_mail_html)
+    .replace('###MAIL_MAYBE_SPAM_SECTION###', maybe_spam_mail_html)
     .replace('###UNIFIED_MAIL_FETCHED###', f'取得: {unified_mail_fetched_at}')
     .replace('###SCHEDULE_SECTION###', schedule_html)
     .replace('###CALENDAR_FETCHED###', f'取得: {calendar_fetched_at}')

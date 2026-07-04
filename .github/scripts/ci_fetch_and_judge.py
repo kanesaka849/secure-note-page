@@ -496,6 +496,8 @@ def judge_account(account_key, account_label, mails, rules):
             'title': title,
             'sub': sub,
             'domain': mail.get('domain', ''),
+            'date': mail.get('date', ''),
+            'to': ACCOUNT_DISPLAY_TO.get(account_key, ''),
             'from_info': f"差出人：{mail['from']}　→　{ACCOUNT_DISPLAY_TO.get(account_key,'')}　｜　{mail['date'][:20]}",
             'detail': mail['body'][:600],
         })
