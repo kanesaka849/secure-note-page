@@ -525,11 +525,17 @@ def _extract_studio(item):
     return m.group(1).strip().replace('スタジオ', '') if m else ''
 
 def _extract_utm_source(item):
+    """[Last/First Touch]ブロックのsource値を取得。
+    sourceが空欄の場合、旧実装は\\sが改行もまたいでマッチしてしまい次の行の
+    "medium:"という文字列自体を誤ってsource値として拾ってしまうバグがあった
+    （[ \\t]*かつ行末[^\\r\\n]*に限定して同一行内のみを見るよう修正）。"""
     body = item.get('body', '')
-    m = re.search(r'\[Last Touch\][^\[]*?source:\s*(\S+)', body)
-    if not m:
-        m = re.search(r'\[First Touch\][^\[]*?source:\s*(\S+)', body)
-    return m.group(1).strip() if m else ''
+    m = re.search(r'\[Last Touch\][^\[]*?source:[ \t]*([^\r\n]*)', body)
+    val = m.group(1).strip() if m else ''
+    if not val:
+        m2 = re.search(r'\[First Touch\][^\[]*?source:[ \t]*([^\r\n]*)', body)
+        val = m2.group(1).strip() if m2 else ''
+    return val
 
 def _extract_date_short(item):
     dt = parse_mail_date(item.get('date', ''))
@@ -552,15 +558,15 @@ def generate_kpi_section(trials, shiryo_list, setsumeikai_list, n_training, kpi_
                 if studio:
                     name += he(f'／{studio}')
                 utm_source = _extract_utm_source(item)
-                if utm_source:
-                    source_labels = {
-                        'google': 'Google', 'google-ads': 'Google広告', 'googleads': 'Google広告',
-                        'instagram': 'Instagram', 'facebook': 'Facebook', 'ig': 'Instagram',
-                        'line': 'LINE', 'yahoo': 'Yahoo', 'email': 'メール', 'mail': 'メール',
-                        'direct': '直接', 'organic': '自然検索', 'referral': '紹介サイト',
-                    }
-                    label = source_labels.get(utm_source.lower(), utm_source)
-                    name += f' <span style="font-size:12px;font-weight:bold;color:var(--blue);">【{he(label)}】</span>'
+                source_labels = {
+                    'google': 'Google', 'google-ads': 'Google広告', 'googleads': 'Google広告',
+                    'instagram': 'Instagram', 'facebook': 'Facebook', 'ig': 'Instagram',
+                    'line': 'LINE', 'yahoo': 'Yahoo', 'email': 'メール', 'mail': 'メール',
+                    'direct': 'Direct', 'organic': '自然検索', 'referral': '紹介サイト',
+                }
+                # source欄が空＝流入元記録なし＝直接アクセス(Direct)として明示表示する
+                label = source_labels.get(utm_source.lower(), utm_source) if utm_source else 'Direct'
+                name += f' <span style="font-size:12px;font-weight:bold;color:var(--blue);">【{he(label)}】</span>'
             ds   = he(_extract_date_short(item))
             detail = _mail_card(item)
             parts.append(
