@@ -345,12 +345,28 @@ def generate_routine_tasks(today_dt):
         </div>""")
     return '\n'.join(parts)
 
+def _schedule_category(summary):
+    """予定タイトルから種類を推定し、(ラベル, バッジ色キー) を返す（カレンダー色分け用）。
+    裁判関連は最重要として別扱いする（呼び出し側でis_criticalとして強調表示）。"""
+    s = summary or ''
+    if '裁判' in s:
+        return ('裁判', 'red')
+    if 'リボーン' in s or '審判' in s or 'サッカー' in s:
+        return ('サッカー', 'green')
+    if 'mtg' in s.lower() or '会議' in s or 'ミーティング' in s:
+        return ('ミーティング', 'blue')
+    if '✈️' in s or '出張' in s:
+        return ('出張', 'teal')
+    return ('プライベート', 'purple')
+
 def generate_schedule_section(events, today_dt):
     if not events:
         return '    <div class="card"><div style="font-size:12px;color:var(--sub);padding:6px 0;">予定なし、または未取得</div></div>'
 
     by_month = {}
     for ev in events:
+        if '定休日' in ev.get('summary', ''):
+            continue  # 「金坂定休日」等の定休日表示は不要（ユーザー指示）
         start = ev.get('start', '')
         if not start:
             continue
@@ -372,9 +388,15 @@ def generate_schedule_section(events, today_dt):
             date_label = f'{dt.month}/{dt.day}（{WEEKDAY_JP[dt.weekday()]}）'
             time_label = '' if ev.get('all_day') else dt.strftime('%H:%M〜')
             loc = f'　@{he(ev["location"])}' if ev.get('location') else ''
-            parts.append(f"""      <div class="schedule-item">
+            summary_text = ev.get('summary', '')
+            cat_label, cat_color = _schedule_category(summary_text)
+            is_critical = (cat_label == '裁判')
+            tag_html = f'<span class="schedule-tag badge-{cat_color}">{cat_label}</span> '
+            summary_html = f'<strong style="color:var(--red);">⚠️ {he(summary_text)}</strong>' if is_critical else he(summary_text)
+            item_cls = 'schedule-item schedule-critical' if is_critical else 'schedule-item'
+            parts.append(f"""      <div class="{item_cls}">
         <div class="{date_cls}">{date_label}</div>
-        <div class="schedule-content">{he(ev.get('summary',''))} {time_label}{loc}</div>
+        <div class="schedule-content">{tag_html}{summary_html} {time_label}{loc}</div>
       </div>""")
         parts.append('    </div>')
     return '\n'.join(parts)
@@ -665,7 +687,8 @@ DASHBOARD_TEMPLATE = """<!DOCTYPE html>
   .schedule-date.today { color: var(--red); }
   .schedule-date.soon  { color: var(--orange); }
   .schedule-content { flex: 1; font-size: 12px; line-height: 1.5; }
-  .schedule-tag { font-size: 10px; padding: 1px 5px; border-radius: 8px; }
+  .schedule-tag { font-size: 10px; padding: 1px 5px; border-radius: 8px; margin-right: 2px; }
+  .schedule-critical { background: #fff5f5; border-left: 3px solid var(--red); padding-left: 6px; margin-left: -6px; border-radius: 4px; }
   .countdown-bar { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
   .countdown-item { text-align: center; background: #f8f9fa; border-radius: 8px; padding: 8px 12px; min-width: 85px; }
   .countdown-item .days  { font-size: 22px; font-weight: bold; color: var(--teal); }
