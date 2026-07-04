@@ -425,17 +425,27 @@ def save_sender_rules(rules):
         json.dump(rules, f, ensure_ascii=False, indent=2)
 
 
+# 内容によって重要度が毎回大きく変わるセキュリティ通知系ドメイン。
+# サーバー側のカテゴリキャッシュを効かせず、常にAIに判定させる（recommendの
+# 一言アドバイスも毎回生成されるようにするため）。
+ALWAYS_FRESH_DOMAINS = {'accounts.google.com'}
+
 def apply_sender_rules(mails, account_rules):
     """(mail, category)確定済みリストと、AI判定が必要な未確定リストに振り分ける。
     ルールの値が文字列＝AIが一意に確定済みの送信元（AI不要）。
     ルールの値が{"hide_categories": [...]}＝△ボタンで一部カテゴリのみ非表示指定された送信元
     （カテゴリ自体は毎回変わりうるため、AI判定は省略せず実行しhide_categoriesで事後フィルタする）。
+    ALWAYS_FRESH_DOMAINSに該当する送信元は、学習済みルールがあっても毎回AI判定する
+    （Google等、通知内容の重要度が毎回異なるため）。
     ルールで確定した送信元はphishing_suspectedを再判定しない（既知の送信元のため）。"""
     decided = []
     undecided = []
     for m in mails:
         addr = _sender_address(m['from'])
         domain = m.get('domain', '')
+        if domain in ALWAYS_FRESH_DOMAINS:
+            undecided.append(m)
+            continue
         rule = account_rules.get(addr) or account_rules.get(domain)
         if isinstance(rule, str) and rule:
             decided.append((m, rule, CATEGORY_ICON.get(rule, '📧'), m['subject'][:30], '', False, ''))
@@ -503,7 +513,8 @@ def judge_account(account_key, account_label, mails, rules):
             addr = _sender_address(mail['from'])
             # 新規送信元（△の部分非表示ルールが無い）のみAI判定結果を文字列としてキャッシュする。
             # 既存の{"hide_categories":...}ルールは上書きしない（毎回AI判定が必要なため）。
-            if addr not in account_rules:
+            # ALWAYS_FRESH_DOMAINSは意図的に毎回AI判定するためキャッシュ自体を作らない。
+            if addr not in account_rules and mail.get('domain', '') not in ALWAYS_FRESH_DOMAINS:
                 account_rules[addr] = category
 
     unified = []
