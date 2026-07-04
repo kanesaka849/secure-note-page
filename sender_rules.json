@@ -193,7 +193,9 @@
       "hide_categories": [
         "action"
       ]
-    }
+    },
+    "notifications@agoda-messaging.com": "info",
+    "no-reply@agoda.com": "info"
   },
   "agniyoga_ad": {
     "yui.m@google.com": "unclear"
