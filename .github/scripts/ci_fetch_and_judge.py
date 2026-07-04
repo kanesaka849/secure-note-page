@@ -15,7 +15,7 @@ GitHub Actions専用スクリプト。以下を実行する：
   5) sender_rules.json（送信元識別子とカテゴリのみ・メール内容は含まない）と
      api_usage_log.json（トークン数・概算コストのみ）はコミット対象。
 """
-import imaplib, poplib, ssl, email, json, os, sys, re, base64, html, urllib.request, urllib.parse
+import imaplib, poplib, ssl, email, json, os, sys, re, base64, hashlib, html, urllib.request, urllib.parse
 from email.header import decode_header
 from datetime import datetime, timezone, timedelta
 
@@ -127,6 +127,18 @@ def _sender_address(from_str):
     return (m.group(1) if m else from_str.strip()).lower()
 
 
+def _stable_msg_id(msg):
+    """メールヘッダーのMessage-IDから変わらない識別子を作る。
+    IMAP連番/POP3メッセージ番号はメールボックスの中身（削除・整理）が変わるとズレて
+    別のメールを指してしまうため使わない（過去に done_state.json の完了記録が
+    無関係なメールにズレて表示される実バグを起こした）。Message-IDが無い場合のみ
+    Subject+Date+Fromで代替する。"""
+    raw = msg.get('Message-ID', '') or msg.get('Message-Id', '') or msg.get('message-id', '')
+    if not raw:
+        raw = (msg.get('Subject', '') or '') + '|' + (msg.get('Date', '') or '') + '|' + (msg.get('From', '') or '')
+    return hashlib.sha1(raw.encode('utf-8', errors='replace')).hexdigest()[:20]
+
+
 def fetch_imap_account(user, password, n):
     ctx = ssl.create_default_context()
     ctx.check_hostname = False
@@ -144,7 +156,7 @@ def fetch_imap_account(user, password, n):
             msg = email.message_from_bytes(raw[0][1])
             from_str = dec(msg.get('From', ''))
             results.append({
-                'id': str(int(uid)),
+                'id': _stable_msg_id(msg),
                 'subject': dec(msg.get('Subject', '')),
                 'from': from_str,
                 'domain': _extract_domain(from_str),
@@ -176,7 +188,7 @@ def fetch_pop3_account(user, password, server, port, n):
             msg = email.message_from_bytes(b'\n'.join(lines))
             from_str = dec(msg.get('From', ''))
             results.append({
-                'id': str(mid),
+                'id': _stable_msg_id(msg),
                 'subject': dec(msg.get('Subject', '')),
                 'from': from_str,
                 'domain': _extract_domain(from_str),
