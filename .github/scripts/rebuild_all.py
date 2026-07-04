@@ -416,18 +416,26 @@ def generate_unified_mail_section(mails, filter_categories=None):
         acct_label, acct_cls = ACCOUNT_LABELS.get(m.get('account', ''), ('?', ''))
         domain = he(m.get('domain', ''))
         account = he(m.get('account', ''))
+        category = he(m.get('category', 'unclear'))
         meta = f'{_format_mail_datetime(m.get("date",""))}　→　{he(m.get("to",""))}'
-        block_btn = (f'<button class="archive-btn" title="今後この送信元を非表示にする" '
+        block_btn = (f'<button class="archive-btn" title="今後この送信元を完全に非表示にする（全カテゴリ）" '
                      f'onclick="event.stopPropagation();blockUnifiedSender(\'{account}\',\'{domain}\')">✕</button>'
                      if domain else '')
-        parts.append(f"""        <div class="mail-item {cls}" id="{mid}" data-domain="{domain}" data-account="{account}">
+        block_cat_btn = (f'<button class="archive-btn" title="今後この送信元の「{category}」カテゴリだけ非表示にする" '
+                          f'onclick="event.stopPropagation();blockCategoryUnifiedSender(\'{account}\',\'{domain}\',\'{category}\')">△</button>'
+                          if domain else '')
+        recommend = he(m.get('recommend', ''))
+        recommend_html = f'<div class="mail-recommend">💡 {recommend}</div>' if recommend else ''
+        parts.append(f"""        <div class="mail-item {cls}" id="{mid}" data-domain="{domain}" data-account="{account}" data-category="{category}">
           <div class="mail-header" onclick="toggleDetail('{mid}')">
             <div class="mail-title"><span class="acct-badge {acct_cls}">{acct_label}</span> {he(m.get('title',''))}</div>
             {block_btn}
-            <button class="archive-btn" onclick="event.stopPropagation();archiveItem('{mid}')">✓</button>
+            {block_cat_btn}
+            <button class="archive-btn" title="この1件だけ完了・非表示にする（送信元は今後も表示されます）" onclick="event.stopPropagation();archiveItem('{mid}')">✓</button>
           </div>
           <div class="mail-to">{meta}</div>
           <div class="mail-sub">{he(m.get('sub',''))}</div>
+          {recommend_html}
           <div class="mail-detail"><div class="detail-from">{he(m.get('from_info',''))}</div><div class="detail-body">{he(m.get('detail',''))}</div></div>
         </div>""")
     return '\n'.join(parts)
@@ -585,6 +593,7 @@ DASHBOARD_TEMPLATE = """<!DOCTYPE html>
   .mail-item .mail-title { font-weight: bold; font-size: 12px; line-height: 1.3; transition: color 0.15s; }
   .mail-item .mail-sub   { font-size: 11px; color: var(--sub); margin-top: 2px; line-height: 1.4; }
   .mail-to { font-size: 10px; color: var(--sub); margin-top: 1px; }
+  .mail-recommend { font-size: 11px; color: #92400e; background: #fffbeb; border: 1px solid #fde68a; border-radius: 5px; padding: 4px 7px; margin-top: 5px; line-height: 1.4; }
   .acct-badge { display: inline-block; font-size: 9px; font-weight: bold; padding: 1px 5px; border-radius: 8px; margin-right: 4px; vertical-align: middle; }
   .acct-activia { background: #dbeafe; color: #1d4ed8; }
   .acct-kanesaka-agni { background: #dcfce7; color: #15803d; }
@@ -746,45 +755,82 @@ async function loadApiCost(){
 const GH_SENDER_RULES='sender_rules.json';
 async function ghGetSenderRules(){try{const r=await fetch(`https://api.github.com/repos/${GH_REPO}/contents/${GH_SENDER_RULES}`,{headers:{'Authorization':`token ${GH_TOKEN}`,'Accept':'application/vnd.github.v3+json'}});if(!r.ok)return{rules:{},sha:null};const d=await r.json();return{rules:JSON.parse(decodeURIComponent(escape(atob(d.content.replace(/\\n/g,''))))),sha:d.sha};}catch(e){return{rules:{},sha:null};}}
 async function ghPutSenderRules(rules,sha){try{const b=btoa(unescape(encodeURIComponent(JSON.stringify(rules))));const body={message:'update sender rules (manual)',content:b};if(sha)body.sha=sha;await fetch(`https://api.github.com/repos/${GH_REPO}/contents/${GH_SENDER_RULES}`,{method:'PUT',headers:{'Authorization':`token ${GH_TOKEN}`,'Content-Type':'application/json','Accept':'application/vnd.github.v3+json'},body:JSON.stringify(body)});}catch(e){}}
-function _gub(){try{return JSON.parse(localStorage.getItem('ks_unified_hidden_v1')||'[]');}catch{return[];}}  // ["account|domain", ...]
+function _gub(){try{return JSON.parse(localStorage.getItem('ks_unified_hidden_v1')||'[]');}catch{return[];}}  // ["account|domain", ...] 完全非表示（×）
 function _sub(list){localStorage.setItem('ks_unified_hidden_v1',JSON.stringify(list));}
+function _gubCat(){try{return JSON.parse(localStorage.getItem('ks_unified_hidden_cat_v1')||'[]');}catch{return[];}}  // ["account|domain|category", ...] カテゴリ限定非表示（△）
+function _subCat(list){localStorage.setItem('ks_unified_hidden_cat_v1',JSON.stringify(list));}
 function applyUnifiedBlocklist(){
-  const list=_gub();
-  document.querySelectorAll('.mail-item[data-account]').forEach(function(el){
-    const key=el.getAttribute('data-account')+'|'+el.getAttribute('data-domain');
-    el.style.display=(el.getAttribute('data-domain')&&list.includes(key))?'none':'';
-  });
+  // 表示中アイテムの非表示化はarchiveItem()/done_state（12時間グレー表示）に一本化。
+  // ここでは「今後表示しない送信元」管理UIの再描画のみ行う。
   renderUnifiedBlocklistUI();
+}
+function _archiveMatching(selector){
+  document.querySelectorAll(selector).forEach(function(el){
+    if(!el.classList.contains('archived'))archiveItem(el.id);
+  });
 }
 function blockUnifiedSender(account,domain){
   if(!domain)return;
-  if(!confirm(`今後「${domain}」（${account}）からのメールを非表示にしますか？（次回のメール反映からもAIが自動でhide扱いします）`))return;
   const key=account+'|'+domain;
   const local=_gub();if(!local.includes(key)){local.push(key);_sub(local);}
-  applyUnifiedBlocklist();
+  _archiveMatching('.mail-item[data-account="'+account+'"][data-domain="'+domain+'"]');
+  renderUnifiedBlocklistUI();
   if(GH_TOKEN){ghGetSenderRules().then(function(r){
     const rules=r.rules;rules[account]=rules[account]||{};rules[account][domain]='hide';
+    ghPutSenderRules(rules,r.sha);
+  });}
+}
+function blockCategoryUnifiedSender(account,domain,category){
+  if(!domain||!category)return;
+  const key=account+'|'+domain+'|'+category;
+  const local=_gubCat();if(!local.includes(key)){local.push(key);_subCat(local);}
+  _archiveMatching('.mail-item[data-account="'+account+'"][data-domain="'+domain+'"][data-category="'+category+'"]');
+  renderUnifiedBlocklistUI();
+  if(GH_TOKEN){ghGetSenderRules().then(function(r){
+    const rules=r.rules;rules[account]=rules[account]||{};
+    const cur=rules[account][domain];
+    const cats=(cur&&typeof cur==='object'&&Array.isArray(cur.hide_categories))?cur.hide_categories.slice():[];
+    if(!cats.includes(category))cats.push(category);
+    rules[account][domain]={hide_categories:cats};
     ghPutSenderRules(rules,r.sha);
   });}
 }
 function unblockUnifiedSender(account,domain){
   const key=account+'|'+domain;
   const local=_gub().filter(function(k){return k!==key;});_sub(local);
-  applyUnifiedBlocklist();
+  renderUnifiedBlocklistUI();
   if(GH_TOKEN){ghGetSenderRules().then(function(r){
     const rules=r.rules;if(rules[account])delete rules[account][domain];
+    ghPutSenderRules(rules,r.sha);
+  });}
+}
+function unblockCategoryUnifiedSender(account,domain,category){
+  const key=account+'|'+domain+'|'+category;
+  const local=_gubCat().filter(function(k){return k!==key;});_subCat(local);
+  renderUnifiedBlocklistUI();
+  if(GH_TOKEN){ghGetSenderRules().then(function(r){
+    const rules=r.rules;const cur=rules[account]&&rules[account][domain];
+    if(cur&&typeof cur==='object'&&Array.isArray(cur.hide_categories)){
+      cur.hide_categories=cur.hide_categories.filter(function(c){return c!==category;});
+      if(!cur.hide_categories.length)delete rules[account][domain];
+    }
     ghPutSenderRules(rules,r.sha);
   });}
 }
 function renderUnifiedBlocklistUI(){
   const el=document.getElementById('unified-blocklist-list');if(!el)return;
   const wrap=document.getElementById('unified-blocklist-card');
-  const list=_gub();
-  if(wrap)wrap.style.display=list.length?'':'none';
-  el.innerHTML=list.map(function(key){
+  const list=_gub(),listCat=_gubCat();
+  if(wrap)wrap.style.display=(list.length||listCat.length)?'':'none';
+  const fullRows=list.map(function(key){
     const parts=key.split('|'),account=parts[0],domain=parts.slice(1).join('|');
-    return `<div class="routine-item"><div class="routine-name">${_esc(domain)}<span style="color:var(--sub);font-size:10px;"> （${_esc(account)}）</span></div><div class="routine-freq"><button class="rt-del-btn" onclick="unblockUnifiedSender('${_esc(account)}','${_esc(domain)}')" title="また表示する">↩</button></div></div>`;
-  }).join('');
+    return `<div class="routine-item"><div class="routine-name">✕ ${_esc(domain)}<span style="color:var(--sub);font-size:10px;"> （${_esc(account)}・全カテゴリ）</span></div><div class="routine-freq"><button class="rt-del-btn" onclick="unblockUnifiedSender('${_esc(account)}','${_esc(domain)}')" title="また表示する">↩</button></div></div>`;
+  });
+  const catRows=listCat.map(function(key){
+    const parts=key.split('|'),account=parts[0],domain=parts[1],category=parts[2];
+    return `<div class="routine-item"><div class="routine-name">△ ${_esc(domain)}<span style="color:var(--sub);font-size:10px;"> （${_esc(account)}・${_esc(category)}のみ）</span></div><div class="routine-freq"><button class="rt-del-btn" onclick="unblockCategoryUnifiedSender('${_esc(account)}','${_esc(domain)}','${_esc(category)}')" title="また表示する">↩</button></div></div>`;
+  });
+  el.innerHTML=fullRows.concat(catRows).join('');
 }
 function mergeDone(a,b){const m={};[...a,...b].forEach(function(i){if(!m[i.id]||i.completedAt>m[i.id].completedAt)m[i.id]=i;});return Object.values(m);}
 function fmtDoneTime(ts){
