@@ -39,9 +39,11 @@ CALENDAR_FILE = os.path.join(INPUT_DIR, "calendar_events.json")
 OUT_MAIN  = os.path.join(OUTPUT_DIR, "kanesaka_tasks_secure.html" if not CI_MODE else "kanesaka-tasks.html")
 OUT_MAIL  = os.path.join(OUTPUT_DIR, "kanesaka-mail-all-secure.html" if not CI_MODE else "kanesaka-mail-all.html")
 OUT_HIST  = os.path.join(OUTPUT_DIR, "kanesaka-task-history.html")
-REPO_MAIN = os.path.join(REPO_DIR, "kanesaka-tasks.html")
-REPO_MAIL = os.path.join(REPO_DIR, "kanesaka-mail-all.html")
-REPO_HIST = os.path.join(REPO_DIR, "kanesaka-task-history.html")
+OUT_RULES = os.path.join(OUTPUT_DIR, "kanesaka-mail-rules.html")
+REPO_MAIN  = os.path.join(REPO_DIR, "kanesaka-tasks.html")
+REPO_MAIL  = os.path.join(REPO_DIR, "kanesaka-mail-all.html")
+REPO_HIST  = os.path.join(REPO_DIR, "kanesaka-task-history.html")
+REPO_RULES = os.path.join(REPO_DIR, "kanesaka-mail-rules.html")
 TOKEN_FILE = os.path.join(INPUT_DIR, "github_done_token.txt")
 
 # ── Encryption ──────────────────────────────────────────────────────────
@@ -1020,6 +1022,7 @@ function fallbackCopy(text,done){
     <button class="rebuild-btn" id="reflect-mail-btn" onclick="reflectMail()" title="GitHub Actionsでメール反映を実行">🔄 メール反映</button>
     <span id="api-cost-note" style="font-size:11px;color:var(--sub);"></span>
     <a class="rebuild-btn" href="kanesaka-task-history.html" title="完了したタスクの履歴">📋 完了履歴</a>
+    <a class="rebuild-btn" href="kanesaka-mail-rules.html" title="送信元ルール・AI判断ロジックを確認">🔍 判定ルール</a>
     <div class="updated">最終更新：###UPDATED### ／ Claude</div>
   </div>
 </header>
@@ -1515,6 +1518,138 @@ MAIL_LIST_HTML = """<!DOCTYPE html>
 </body>
 </html>"""
 
+# ── Mail Rules / AI Logic Viewer ─────────────────────────────────────────
+MAIL_RULES_HTML = """<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>送信元ルール・AI判断ロジック</title>
+<style>
+  :root{--bg:#f4f5f7;--card:#fff;--blue:#2980b9;--text:#2c3e50;--sub:#636e72;--border:#dfe6e9;}
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{font-family:'Hiragino Sans','Meiryo',sans-serif;background:var(--bg);color:var(--text);font-size:14px;}
+  header{background:#2c3e50;color:white;padding:12px 20px;display:flex;justify-content:space-between;align-items:center;gap:16px;}
+  header h1{font-size:16px;font-weight:bold;}
+  header a{color:#94a3b8;font-size:13px;text-decoration:none;}
+  header a:hover{color:white;}
+  .container{max-width:1000px;margin:0 auto;padding:14px;}
+  .card{background:var(--card);border-radius:10px;padding:16px 18px;box-shadow:0 1px 4px rgba(0,0,0,.08);margin-bottom:14px;}
+  .card-title{font-size:14px;font-weight:bold;margin-bottom:10px;display:flex;align-items:center;gap:8px;}
+  .text-sm{font-size:13px;line-height:1.9;}
+  .text-sm strong{color:var(--blue);}
+  .cat-list{list-style:none;margin:6px 0 12px;}
+  .cat-list li{padding:4px 0 4px 10px;border-left:3px solid var(--border);margin-bottom:4px;}
+  .search-box{width:100%;padding:9px 14px;border:1px solid var(--border);border-radius:8px;margin-bottom:12px;font-size:13px;}
+  table{width:100%;border-collapse:collapse;font-size:12px;}
+  th,td{padding:6px 8px;border-bottom:1px solid var(--border);text-align:left;vertical-align:top;}
+  th{color:var(--sub);font-size:11px;text-transform:uppercase;letter-spacing:.03em;}
+  tr:hover td{background:#f8fafc;}
+  .acct-pill{display:inline-block;font-size:10px;font-weight:bold;padding:2px 7px;border-radius:8px;background:#eef2ff;color:#4338ca;white-space:nowrap;}
+  .cat-pill{display:inline-block;font-size:10px;font-weight:bold;padding:2px 7px;border-radius:8px;}
+  .cat-action{background:#fee2e2;color:#b91c1c;}
+  .cat-info{background:#dbeafe;color:#1d4ed8;}
+  .cat-unclear{background:#f3e8ff;color:#7e22ce;}
+  .cat-maybe_spam{background:#fef9c3;color:#a16207;}
+  .cat-hide{background:#f1f5f9;color:#64748b;}
+  .cat-partial{background:#ffedd5;color:#c2410c;}
+  #rules-status{font-size:12px;color:var(--sub);padding:8px 0;}
+</style>
+</head>
+<body>
+<header>
+  <h1>🔍 送信元ルール・AI判断ロジック</h1>
+  <a href="kanesaka-tasks.html">← ダッシュボードへ戻る</a>
+</header>
+<div class="container">
+  <div class="card">
+    <div class="card-title">📖 AIはどう判断しているか</div>
+    <div class="text-sm">
+      統合メール一覧は、送信元ごとに学習した<strong>ルール（下の表）</strong>で確定するものはAIを呼ばず即決定し、
+      まだ確定していない新しい送信元だけAnthropic APIに判定させる仕組みです。<br><br>
+      <strong>4分類＋非表示</strong>
+      <ul class="cat-list">
+        <li><span class="cat-pill cat-action">action 要対応</span> 支払期限・重要な手続き・セキュリティ警告など対応が必要な連絡</li>
+        <li><span class="cat-pill cat-info">info お知らせ</span> 対応不要だが知っておくべき業務連絡・システム通知</li>
+        <li><span class="cat-pill cat-unclear">unclear 宛先不明</span> 本人宛とは分かるが重要度が読み取りにくく、本人の判断が必要</li>
+        <li><span class="cat-pill cat-maybe_spam">maybe_spam スパムか不明</span> 広告・営業の可能性が高いが確信は持てない</li>
+        <li><span class="cat-pill cat-hide">hide 非表示</span> 明らかな広告・スパムと確信できる場合のみ、一覧から除外</li>
+      </ul>
+      <strong>判断に迷う場合は必ずunclear（表示する側）に倒します</strong>（見落としより誤表示の方が害が少ないため）。<br>
+      正規の通知を装ったフィッシングの疑いがある場合は<strong>phishing_suspected</strong>フラグが立ち、
+      カテゴリに関わらず「⚠️【フィッシング注意】」を付けて必ず表示します（非表示にはしません）。<br>
+      セキュリティ通知など判断の参考になる場合は、AIが<strong>💡一言アドバイス（recommend）</strong>も添えます。<br><br>
+      <strong>✕（送信元を完全非表示）</strong>は今後そのアカウントからの全カテゴリを非表示にします。
+      <strong>△（カテゴリ限定非表示）</strong>はそのカテゴリだけを非表示にします（下表で
+      <span class="cat-pill cat-partial">一部非表示</span>と表示されているものが△で設定した送信元です）。
+      いずれも「要対応(action)」を対象にする場合は、重要な連絡を見落とすリスクがあるため確認ダイアログが出ます。
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-title">📋 学習済みの送信元ルール一覧 <span id="rule-count" style="font-weight:normal;color:var(--sub);font-size:12px;"></span></div>
+    <input type="text" class="search-box" id="rule-search" placeholder="送信元・アカウント・カテゴリで検索…" oninput="filterRules()">
+    <div id="rules-status">読み込み中…</div>
+    <table id="rules-table" style="display:none;">
+      <thead><tr><th>アカウント</th><th>送信元</th><th>判定</th></tr></thead>
+      <tbody id="rules-tbody"></tbody>
+    </table>
+  </div>
+</div>
+<script>
+const GH_REPO='kanesaka849/secure-note-page';
+const ACCOUNT_LABELS_JS={
+  kanesaka_activia:'Activia', kanesaka_agni:'個人', agniyoga_ad:'広告用',
+  zipyoga:'ZIP問合せ', kanesaka_agniyoga:'agniyoga'
+};
+let ALL_ROWS=[];
+function _esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+async function loadRules(){
+  try{
+    const r=await fetch('https://raw.githubusercontent.com/'+GH_REPO+'/main/sender_rules.json?_='+Date.now());
+    if(!r.ok){document.getElementById('rules-status').textContent='読み込み失敗（'+r.status+'）';return;}
+    const rules=await r.json();
+    renderRules(rules);
+  }catch(e){document.getElementById('rules-status').textContent='エラー：'+e.message;}
+}
+function catPillHtml(v){
+  if(typeof v==='string'){
+    return `<span class="cat-pill cat-${_esc(v)}">${_esc(v)}</span>`;
+  }
+  if(v&&Array.isArray(v.hide_categories)){
+    return `<span class="cat-pill cat-partial">一部非表示: ${_esc(v.hide_categories.join('・'))}</span>`;
+  }
+  return _esc(JSON.stringify(v));
+}
+function renderRules(rules){
+  const rows=[];
+  Object.keys(rules).forEach(function(acct){
+    const accLabel=ACCOUNT_LABELS_JS[acct]||acct;
+    Object.keys(rules[acct]||{}).forEach(function(sender){
+      rows.push({acct:accLabel,acctKey:acct,sender:sender,cat:rules[acct][sender]});
+    });
+  });
+  rows.sort(function(a,b){return a.acct.localeCompare(b.acct)||a.sender.localeCompare(b.sender);});
+  ALL_ROWS=rows;
+  document.getElementById('rule-count').textContent='（'+rows.length+'件）';
+  document.getElementById('rules-status').style.display='none';
+  document.getElementById('rules-table').style.display='';
+  filterRules();
+}
+function filterRules(){
+  const q=(document.getElementById('rule-search').value||'').toLowerCase();
+  const tbody=document.getElementById('rules-tbody');
+  const filtered=ALL_ROWS.filter(function(r){
+    if(!q)return true;
+    return r.sender.toLowerCase().includes(q)||r.acct.toLowerCase().includes(q)||JSON.stringify(r.cat).toLowerCase().includes(q);
+  });
+  tbody.innerHTML=filtered.map(function(r){
+    return `<tr><td><span class="acct-pill">${_esc(r.acct)}</span></td><td>${_esc(r.sender)}</td><td>${catPillHtml(r.cat)}</td></tr>`;
+  }).join('');
+}
+loadRules();
+</script>
+</body>
+</html>"""
+
 # ── Git Operations ──────────────────────────────────────────────────────
 GIT = r"C:\Program Files\Git\bin\git.exe"
 if not os.path.exists(GIT):
@@ -1683,18 +1818,23 @@ mail_list_html = MAIL_LIST_HTML.replace('###UPDATED###', today)
 # 5b) Assemble History HTML (with token, then encrypt)
 hist_html = TASK_HISTORY_HTML.replace('###GITHUB_TOKEN###', gh_token)
 
+# 5c) Assemble Mail Rules / AI Logic viewer HTML（送信元ルールは公開リポジトリのraw経由で読むためtoken不要）
+rules_html = MAIL_RULES_HTML
+
 # 6) Encrypt
 print("暗号化中...")
 S1, I1, C1 = encrypt(dashboard_html)
 S2, I2, C2 = encrypt(mail_list_html)
 S3, I3, C3 = encrypt(hist_html)
-main_wrapper = make_wrapper("金坂 タスク管理", S1, I1, C1)
-mail_wrapper = make_wrapper("金坂 メール一覧", S2, I2, C2, back_link="kanesaka-tasks.html")
-hist_wrapper = make_wrapper("完了済みタスク履歴", S3, I3, C3, back_link="kanesaka-tasks.html")
+S4, I4, C4 = encrypt(rules_html)
+main_wrapper  = make_wrapper("金坂 タスク管理", S1, I1, C1)
+mail_wrapper  = make_wrapper("金坂 メール一覧", S2, I2, C2, back_link="kanesaka-tasks.html")
+hist_wrapper  = make_wrapper("完了済みタスク履歴", S3, I3, C3, back_link="kanesaka-tasks.html")
+rules_wrapper = make_wrapper("送信元ルール・AI判断ロジック", S4, I4, C4, back_link="kanesaka-tasks.html")
 
 # 7) Write output
 os.makedirs(OUTPUT_DIR, exist_ok=True)
-for path, html in [(OUT_MAIN, main_wrapper), (OUT_MAIL, mail_wrapper), (OUT_HIST, hist_wrapper)]:
+for path, html in [(OUT_MAIN, main_wrapper), (OUT_MAIL, mail_wrapper), (OUT_HIST, hist_wrapper), (OUT_RULES, rules_wrapper)]:
     with open(path, 'w', encoding='utf-8') as f:
         f.write(html)
     print(f"✅ {os.path.basename(path)} ({len(html):,} chars)")
@@ -1709,6 +1849,7 @@ if not CI_MODE:
         shutil.copy2(OUT_MAIN, REPO_MAIN)
         shutil.copy2(OUT_MAIL, REPO_MAIL)
         shutil.copy2(OUT_HIST, REPO_HIST)
+        shutil.copy2(OUT_RULES, REPO_RULES)
         print("リポジトリへコピー完了")
         git_push(today)
     except Exception as e:
