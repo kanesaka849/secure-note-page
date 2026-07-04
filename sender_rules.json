@@ -49,7 +49,10 @@
     "bizcon@onamae.com": "unclear",
     "mail@bizstation-ml2.bk.mufg.jp": "unclear",
     "ptmag@tsite.jp": "unclear",
-    "noreply@design-ac.net": "unclear"
+    "noreply@design-ac.net": "unclear",
+    "info@m.nojima.co.jp": "hide",
+    "cyber-j@jaccscard.co.jp": "action",
+    "admin@onamae.com": "action"
   },
   "kanesaka_agni": {
     "no-reply@sg.newsletter.agoda-emails.com": "hide",
@@ -73,9 +76,29 @@
     "no-reply@email.claude.com": "hide",
     "sales_div@backofficeforce.jp": "maybe_spam",
     "service-jp@paypal.com": "action",
-    "info-api@musashinobank.co.jp": "info"
+    "info-api@musashinobank.co.jp": "info",
+    "info@mail.renet.jp": "hide",
+    "info@agniyoga.jp": "hide"
   },
   "agniyoga_ad": {
     "yui.m@google.com": "unclear"
+  },
+  "zipyoga": {},
+  "kanesaka_agniyoga": {
+    "info@chiba-happyhouse.com": "unclear",
+    "recommend@jleague.jp": "unclear",
+    "w002239@meijiyasuda.co.jp": "unclear",
+    "em@em1.cloudflare.com": "unclear",
+    "mail@direct-11.bk.mufg.jp": "unclear",
+    "jnews@jleague.jp": "unclear",
+    "noreply@jefunited.co.jp": "unclear",
+    "no-reply@news.meijiyasuda.co.jp": "unclear",
+    "service@ac.rakuten-bank.co.jp": "unclear",
+    "no-reply@mercari.jp": "unclear",
+    "email_info@mufg.jp": "unclear",
+    "noreply@notify.cloudflare.com": "unclear",
+    "store-jleague@jleague.jp": "unclear",
+    "alerts@costalerts.amazonaws.com": "unclear",
+    "news@ns.chatwork.com": "unclear"
   }
 }
