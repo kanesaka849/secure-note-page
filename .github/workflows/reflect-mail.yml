@@ -76,4 +76,21 @@ jobs:
           git add advice_store.enc 2>/dev/null || true
           git diff --cached --quiet && echo "No changes" && exit 0
           git commit -m "reflect-mail: auto update $(date -u +%Y-%m-%dT%H:%M:%SZ) [skip ci]"
-          git push
+          # 実行中（数分間）にダッシュボードのボタン操作（✕/✓/🤖AI等）がmainへコミットすると
+          # 素のpushは拒否され、run全体（AIアドバイス生成・再ビルド）が無駄になっていた。
+          # → rebaseして再試行。コンフリクトはユーザー操作系ファイル＝ブラウザ側優先、
+          #   ビルド生成物＝このrun優先で機械的に解決する（rebase中は ours=origin / theirs=このrun）
+          for i in 1 2 3 4 5; do
+            git push && exit 0
+            echo "push rejected (browser commit during run) - rebase & retry $i"
+            git fetch origin main
+            if ! git rebase origin/main; then
+              git checkout --ours sender_rules.json ci_trigger/calendar_requests.json ci_trigger/advice_requests.json 2>/dev/null || true
+              git checkout --theirs kanesaka-tasks.html kanesaka-mail-all.html kanesaka-task-history.html kanesaka-mail-rules.html api_usage_log.json advice_store.enc 2>/dev/null || true
+              git add -A
+              GIT_EDITOR=true git rebase --continue || git rebase --abort
+            fi
+            sleep 3
+          done
+          echo "push failed after retries"
+          exit 1
