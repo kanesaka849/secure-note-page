@@ -143,7 +143,21 @@ def _stable_msg_id(msg):
     Subject+Date+Fromで代替する。"""
     raw = msg.get('Message-ID', '') or msg.get('Message-Id', '') or msg.get('message-id', '')
     if not raw:
-        raw = (msg.get('Subject', '') or '') + '|' + (msg.get('Date', '') or '') + '|' + (msg.get('From', '') or '')
+        subj = msg.get('Subject', '') or ''
+        date = msg.get('Date', '') or ''
+        frm = msg.get('From', '') or ''
+        raw = subj + '|' + date + '|' + frm
+        if not (subj or date or frm):
+            # Subject/Date/Fromも全て欠落した極端なケース。このまま空文字同士だと
+            # 無関係な複数のメールが同一ハッシュ（同一id）になりHTML上でid衝突・
+            # 誤って別メールを完了扱いにする実バグを起こすため、Receivedヘッダーと
+            # 本文冒頭を追加の手がかりにして衝突を避ける。
+            received = '|'.join(msg.get_all('Received', []) or [])
+            try:
+                body_snip = str(msg.get_payload())[:200]
+            except Exception:
+                body_snip = ''
+            raw = received + '|' + body_snip
     return hashlib.sha1(raw.encode('utf-8', errors='replace')).hexdigest()[:20]
 
 
@@ -471,7 +485,11 @@ def apply_sender_rules(mails, account_rules):
         if domain in ALWAYS_FRESH_DOMAINS:
             undecided.append(m)
             continue
-        rule = account_rules.get(addr) or account_rules.get(domain)
+        # ドメイン単位のルールは✕/△ボタンによるユーザーの明示的な指定、
+        # アドレス単位のルールはAIが自動学習したキャッシュに過ぎない。
+        # ユーザーが後からドメインごとブロックしても常にアドレス単位が勝ってしまう
+        # バグがあったため、明示的な指定であるドメイン側を優先する。
+        rule = account_rules.get(domain) or account_rules.get(addr)
         if isinstance(rule, str) and rule:
             decided.append((m, rule, CATEGORY_ICON.get(rule, '📧'), m['subject'][:30], '', False, ''))
         else:
@@ -484,7 +502,7 @@ def _hide_categories_for(mail, account_rules):
     actionカテゴリも指定可能（クライアント側で確認ダイアログを表示してから設定される想定）。"""
     addr = _sender_address(mail['from'])
     domain = mail.get('domain', '')
-    rule = account_rules.get(addr) or account_rules.get(domain)
+    rule = account_rules.get(domain) or account_rules.get(addr)  # ドメイン（明示指定）優先。理由は apply_sender_rules 参照
     if isinstance(rule, dict):
         return set(rule.get('hide_categories', []))
     return set()
@@ -663,7 +681,9 @@ def process_advice_requests(unified_mails):
         return
     now_str = datetime.now(JST).strftime('%m/%d %H:%M')
     ok = ng = 0
-    for r in reqs[:10]:  # 1回の実行で最大10件（コスト暴走ガード）
+    PROCESS_CAP = 10  # 1回の実行で最大10件（コスト暴走ガード）
+    to_process, leftover = reqs[:PROCESS_CAP], reqs[PROCESS_CAP:]
+    for r in to_process:
         mid = r.get('id', '')
         mail = by_id.get(mid)
         if mail is None:
@@ -696,9 +716,28 @@ def process_advice_requests(unified_mails):
     if len(store) > 100:
         store = dict(sorted(store.items(), key=lambda kv: kv[1].get('checked', ''), reverse=True)[:100])
     save_advice_store(store)
+    # 上限を超えた分は消さずに残し、次回実行時に持ち越す（以前は無条件で空にしており、
+    # 11件目以降の依頼がエラーも出ずに黙って消えるバグがあった）。
     with open(ADVICE_REQ_FILE, 'w', encoding='utf-8') as f:
-        json.dump({'requests': []}, f, ensure_ascii=False, indent=2)
-    print(f'🤖 AIアドバイス処理完了: 成功{ok}件 / 失敗{ng}件（依頼ファイルをクリア）')
+        json.dump({'requests': leftover}, f, ensure_ascii=False, indent=2)
+    print(f'🤖 AIアドバイス処理完了: 成功{ok}件 / 失敗{ng}件 / 次回持ち越し{len(leftover)}件')
+
+
+def _extract_meeting_url(body):
+    """メール本文からWeb会議リンク（Zoom/Google Meet/Teams/Webex）を1件抽出する。"""
+    if not body:
+        return ''
+    pats = [
+        r'https?://[\w.-]*zoom\.us/[^\s"\'<>）)】]+',
+        r'https?://meet\.google\.com/[^\s"\'<>）)】]+',
+        r'https?://[\w.-]*teams\.microsoft\.com/[^\s"\'<>）)】]+',
+        r'https?://[\w.-]*webex\.com/[^\s"\'<>）)】]+',
+    ]
+    for p in pats:
+        m = re.search(p, body)
+        if m:
+            return m.group(0).rstrip('.,)）】')
+    return ''
 
 
 def judge_account(account_key, account_label, mails, rules):
@@ -743,6 +782,7 @@ def judge_account(account_key, account_label, mails, rules):
             'to': ACCOUNT_DISPLAY_TO.get(account_key, ''),
             'from_info': f"差出人：{mail['from']}　→　{ACCOUNT_DISPLAY_TO.get(account_key,'')}　｜　{mail['date'][:20]}",
             'detail': mail['body'][:600],
+            'meeting_url': _extract_meeting_url(mail.get('body', '')),  # Zoom/Meet/Teams等の会議リンク（あれば）
         })
     return unified
 

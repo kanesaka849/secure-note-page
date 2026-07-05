@@ -53,6 +53,8 @@ def main():
 
     token = get_access_token()
     ok = ng = 0
+    remaining = []
+    MAX_RETRIES = 5
     for r in reqs:
         try:
             if r.get('action') == 'add':
@@ -89,20 +91,32 @@ def main():
                     method='DELETE', headers={'Authorization': f'Bearer {token}'})
                 try:
                     urllib.request.urlopen(req)
+                    print(f'削除OK: {eid}')
                 except urllib.error.HTTPError as e:
                     if e.code not in (404, 410):
                         raise
-                print(f'削除OK: {eid}')
+                    # 404/410は「既に削除済み」の可能性もあるが、クライアント側でevent_idが
+                    # 破損しているケースも同じ挙動になるため、通常の成功と区別してログに残す。
+                    print(f'削除OK: {eid}（既に存在しません・404/410。event_id破損の可能性にも注意）')
                 ok += 1
             else:
                 raise ValueError(f'不明なaction: {r.get("action")}')
         except Exception as e:
+            tries = r.get('_tries', 0) + 1
             print(f'失敗: {r} → {e}')
             ng += 1
+            if tries < MAX_RETRIES:
+                # 失敗した依頼は消さずに残し、次回実行でリトライする（以前は無条件で
+                # 依頼ファイルを空にしており、一時的なトークン切れ等で依頼が
+                # 「送信済み」表示のまま黙って消えるバグがあった）。
+                r['_tries'] = tries
+                remaining.append(r)
+            else:
+                print(f'⚠️ 依頼を{MAX_RETRIES}回失敗のため破棄: {r}')
 
     with open(REQ_FILE, 'w', encoding='utf-8') as f:
-        json.dump({'requests': []}, f, ensure_ascii=False, indent=2)
-    print(f'完了: 成功{ok}件 / 失敗{ng}件（依頼ファイルをクリア）')
+        json.dump({'requests': remaining}, f, ensure_ascii=False, indent=2)
+    print(f'完了: 成功{ok}件 / 失敗{ng}件 / 次回リトライ{len(remaining)}件')
 
 
 main()
