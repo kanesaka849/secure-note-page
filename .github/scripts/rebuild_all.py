@@ -944,17 +944,22 @@ const GH_ADVICE_REQ='ci_trigger/advice_requests.json';
 async function requestAdvice(mid,btn){
   if(!GH_TOKEN){alert('GitHubトークンが設定されていません');return;}
   if(btn){btn.disabled=true;btn.textContent='⏳';}
-  try{
-    let cur={requests:[]},sha=null;
-    try{const g=await fetch(`https://api.github.com/repos/${GH_REPO}/contents/${GH_ADVICE_REQ}`,{headers:{'Authorization':`token ${GH_TOKEN}`,'Accept':'application/vnd.github.v3+json'}});if(g.ok){const d=await g.json();sha=d.sha;cur=JSON.parse(decodeURIComponent(escape(atob(d.content.replace(/\\n/g,'')))));}}catch(e){}
-    if(!Array.isArray(cur.requests))cur.requests=[];
-    if(!cur.requests.some(function(r){return r.id===mid;}))cur.requests.push({id:mid,requested:new Date().toISOString()});
-    const body={message:'advice request (dashboard)',content:btoa(unescape(encodeURIComponent(JSON.stringify(cur))))};
-    if(sha)body.sha=sha;
-    const r=await fetch(`https://api.github.com/repos/${GH_REPO}/contents/${GH_ADVICE_REQ}`,{method:'PUT',headers:{'Authorization':`token ${GH_TOKEN}`,'Content-Type':'application/json','Accept':'application/vnd.github.v3+json'},body:JSON.stringify(body)});
-    if(r.status===200||r.status===201){if(btn)btn.textContent='依頼済';alert('AIアドバイスを依頼しました。自動でメール反映が実行され、数分後に「🔃 更新」で表示されます。');}
-    else{if(btn){btn.disabled=false;btn.textContent='🤖';}alert('依頼に失敗しました（'+r.status+'）');}
-  }catch(e){if(btn){btn.disabled=false;btn.textContent='🤖';}alert('依頼に失敗しました');}
+  let ok=false;
+  for(let i=0;i<3&&!ok;i++){
+    try{
+      let cur={requests:[]},sha=null;
+      try{const g=await fetch(`https://api.github.com/repos/${GH_REPO}/contents/${GH_ADVICE_REQ}`,{headers:{'Authorization':`token ${GH_TOKEN}`,'Accept':'application/vnd.github.v3+json'}});if(g.ok){const d=await g.json();sha=d.sha;cur=JSON.parse(decodeURIComponent(escape(atob(d.content.replace(/\\n/g,'')))));}}catch(e){}
+      if(!Array.isArray(cur.requests))cur.requests=[];
+      if(!cur.requests.some(function(r){return r.id===mid;}))cur.requests.push({id:mid,requested:new Date().toISOString()});
+      const body={message:'advice request (dashboard)',content:btoa(unescape(encodeURIComponent(JSON.stringify(cur))))};
+      if(sha)body.sha=sha;
+      const r=await fetch(`https://api.github.com/repos/${GH_REPO}/contents/${GH_ADVICE_REQ}`,{method:'PUT',headers:{'Authorization':`token ${GH_TOKEN}`,'Content-Type':'application/json','Accept':'application/vnd.github.v3+json'},body:JSON.stringify(body)});
+      ok=(r.status===200||r.status===201);
+    }catch(e){}
+    if(!ok)await new Promise(function(res){setTimeout(res,700);});
+  }
+  if(ok){if(btn)btn.textContent='依頼済';alert('AIアドバイスを依頼しました。自動でメール反映が実行され、数分後に「🔃 更新」で表示されます。');}
+  else{if(btn){btn.disabled=false;btn.textContent='🤖AI';}alert('依頼に失敗しました。時間をおいてもう一度お試しください');}
 }
 function _gub(){try{return JSON.parse(localStorage.getItem('ks_unified_hidden_v1')||'[]');}catch{return[];}}  // [{key:"account|domain",label:"ノジマ"}, ...] 完全非表示（×）
 function _sub(list){localStorage.setItem('ks_unified_hidden_v1',JSON.stringify(list));}
@@ -1132,15 +1137,18 @@ function applyDoneState(list){
   });
   document.querySelectorAll('[id^="r-"]').forEach(function(el){if(el.style.display==='none'||el.classList.contains('archived'))return;var base=el.id.replace(/-\\d{8}$/,'');if(doneBase[base]&&now-doneBase[base]<H7D)el.style.display='none';});
 }
-function cleanupDoneNow(){
+async function cleanupDoneNow(){
+  // 先にGitHubの最新done_stateを取り込んでから片づける
+  // （他端末で✓したばかりの分も一緒に掃除できるようにする）
+  let list=_gd(),sha=null;
+  if(GH_TOKEN){const g=await ghGet();list=mergeDone(list,g.list);sha=g.sha;_sd(list);applyDoneState(list);}
   const now=Date.now(),H12=12*3600*1000;
-  const list=_gd();
   const pending=list.filter(function(d){return !d.cleaned&&now-d.completedAt<H12;});
   if(!pending.length){alert('片づける完了済みアイテムはありません（グレー表示のものが対象です）');return;}
   if(!confirm('完了・非表示にした '+pending.length+' 件をいますぐ画面から片づけます（完了履歴には残ります）。よろしいですか？'))return;
   pending.forEach(function(d){d.cleaned=true;});
   _sd(list);applyDoneState(list);renderExtraTasks();
-  if(GH_TOKEN){ghGet().then(function(r){const merged=mergeDone(list,r.list);_sd(merged);ghPut(merged,r.sha);});}
+  if(GH_TOKEN)ghPut(list,sha);
 }
 function toggleKpiDetail(id){const el=document.getElementById(id);if(!el)return;const open=el.classList.contains('open');document.querySelectorAll('.kpi-mail-detail.open').forEach(e=>e.classList.remove('open'));if(!open)el.classList.add('open');}
 function openPop(id){document.querySelectorAll('.pop-overlay').forEach(e=>e.classList.remove('open'));var el=document.getElementById(id);if(el)el.classList.add('open');}
