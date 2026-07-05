@@ -181,7 +181,8 @@
     "n76fm3p6d@cnt-ng28game.com": "action",
     "message@salon-ms.jp": "action",
     "saga-kyukyu-47@koseikan.jp": "action",
-    "verification-noreply@onamae.com": "action"
+    "verification-noreply@onamae.com": "action",
+    "notifications@stripe.com": "action"
   },
   "kanesaka_agni": {
     "no-reply@sg.newsletter.agoda-emails.com": "hide",
