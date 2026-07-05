@@ -231,7 +231,8 @@
     },
     "notifications@agoda-messaging.com": "info",
     "no-reply@agoda.com": "info",
-    "invoice+statements@mail.anthropic.com": "info"
+    "invoice+statements@mail.anthropic.com": "info",
+    "contact@t.brevo.com": "action"
   },
   "agniyoga_ad": {
     "yui.m@google.com": "unclear",
