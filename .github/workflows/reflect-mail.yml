@@ -24,6 +24,13 @@ jobs:
       - name: Install dependencies
         run: pip install cryptography
 
+      - name: Process calendar requests (add/delete from dashboard)
+        env:
+          GMAIL_CLIENT_ID: ${{ secrets.GMAIL_CLIENT_ID }}
+          GMAIL_CLIENT_SECRET: ${{ secrets.GMAIL_CLIENT_SECRET }}
+          KANESAKA_CALENDAR_REFRESH_TOKEN: ${{ secrets.KANESAKA_CALENDAR_REFRESH_TOKEN }}
+        run: python .github/scripts/process_calendar_requests.py
+
       - name: Fetch mail & judge with Anthropic API
         env:
           MAIL_KANESAKA_ACTIVIA: ${{ secrets.MAIL_KANESAKA_ACTIVIA }}
@@ -58,6 +65,7 @@ jobs:
           git config user.name "reflect-mail-bot"
           git config user.email "actions@github.com"
           git add kanesaka-tasks.html kanesaka-mail-all.html kanesaka-task-history.html kanesaka-mail-rules.html api_usage_log.json sender_rules.json
+          git add ci_trigger/calendar_requests.json 2>/dev/null || true
           git diff --cached --quiet && echo "No changes" && exit 0
           git commit -m "reflect-mail: auto update $(date -u +%Y-%m-%dT%H:%M:%SZ)"
           git push
