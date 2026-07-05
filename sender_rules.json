@@ -182,7 +182,8 @@
     "message@salon-ms.jp": "action",
     "saga-kyukyu-47@koseikan.jp": "action",
     "verification-noreply@onamae.com": "action",
-    "notifications@stripe.com": "action"
+    "notifications@stripe.com": "action",
+    "advertise-noreply@global.metamail.com": "hide"
   },
   "kanesaka_agni": {
     "no-reply@sg.newsletter.agoda-emails.com": "hide",
