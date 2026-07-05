@@ -1178,6 +1178,7 @@ function fallbackCopy(text,done){
     <button class="btn-header" id="reflect-mail-btn" onclick="reflectMail()" title="GitHub Actionsでメール反映を実行">🔄 メール反映</button>
     <a class="btn-header" href="kanesaka-task-history.html" title="完了したタスクの履歴">📋 完了履歴</a>
     <a class="btn-header" href="kanesaka-mail-rules.html" title="送信元ルール・AI判断ロジックを確認">🔍 判定ルール</a>
+    <button class="btn-header" onclick="location.href=location.pathname+'?_='+Date.now()" title="最新の状態に再読み込み（F5相当・キャッシュ回避）">🔃 更新</button>
   </div>
   <div class="updated">最終更新：###UPDATED### ／ Claude　<span id="api-cost-note" style="font-size:11px;color:var(--sub);"></span></div>
 </header>
