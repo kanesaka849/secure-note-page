@@ -1205,6 +1205,7 @@ function fallbackCopy(text,done){
     <a class="btn-header" href="kanesaka-task-history.html" title="完了したタスクの履歴">📋 完了履歴</a>
     <a class="btn-header" href="kanesaka-mail-rules.html" title="送信元ルール・AI判断ロジックを確認">🔍 判定ルール</a>
     <button class="btn-header" onclick="top.location.href=top.location.pathname+'?_='+Date.now()" title="最新の状態に再読み込み（F5相当・キャッシュ回避）">🔃 更新</button>
+    <button class="btn-header" onclick="cleanupDoneNow()" title="完了・非表示済み（グレー表示）のメールを12時間待たずにいますぐ履歴へ移動する">🧹 完了分を片づけ</button>
   </div>
   <div class="updated">最終更新：###UPDATED### ／ Claude　<span id="api-cost-note" style="font-size:11px;color:var(--sub);"></span></div>
 </header>
@@ -1354,7 +1355,6 @@ function fallbackCopy(text,done){
   <div class="section-head" id="unified-mail">📬 全メール一覧（AI仕分け・全アカウント統合）<span style="font-size:10px;font-weight:normal;margin-left:8px;color:var(--sub);">###UNIFIED_MAIL_FETCHED###</span>
     <button class="rebuild-btn" style="font-size:10px;padding:3px 10px;margin-left:auto;" onclick="toggleUnifiedBlocklistUI()">🚫 非表示リスト</button>
     <button class="rebuild-btn jh-restore-btn" style="font-size:10px;padding:3px 10px;display:none;" onclick="restoreJustHidden()">個別非表示を戻す</button>
-    <button class="rebuild-btn" style="font-size:10px;padding:3px 10px;" onclick="cleanupDoneNow()" title="グレー表示（完了・非表示済み）のアイテムを12時間待たずにいますぐ履歴へ移動する">🧹 完了分を片づけ</button>
   </div>
   <div class="first-view">
     <div class="fv-col">
