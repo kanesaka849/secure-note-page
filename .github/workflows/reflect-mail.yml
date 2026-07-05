@@ -9,6 +9,11 @@ on:
 permissions:
   contents: write
 
+# 同時実行を直列化：並行した2つのrunが「古いスクリプトのビルド結果で後から上書き」する競合を防ぐ
+concurrency:
+  group: reflect-mail
+  cancel-in-progress: false
+
 jobs:
   reflect:
     runs-on: ubuntu-latest
@@ -70,5 +75,5 @@ jobs:
           git add ci_trigger/advice_requests.json 2>/dev/null || true
           git add advice_store.enc 2>/dev/null || true
           git diff --cached --quiet && echo "No changes" && exit 0
-          git commit -m "reflect-mail: auto update $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          git commit -m "reflect-mail: auto update $(date -u +%Y-%m-%dT%H:%M:%SZ) [skip ci]"
           git push
