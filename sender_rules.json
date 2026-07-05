@@ -183,7 +183,8 @@
     "saga-kyukyu-47@koseikan.jp": "action",
     "verification-noreply@onamae.com": "action",
     "notifications@stripe.com": "action",
-    "advertise-noreply@global.metamail.com": "hide"
+    "advertise-noreply@global.metamail.com": "hide",
+    "news@ns.chatwork.com": "hide"
   },
   "kanesaka_agni": {
     "no-reply@sg.newsletter.agoda-emails.com": "hide",
@@ -235,7 +236,8 @@
     "notifications@agoda-messaging.com": "info",
     "no-reply@agoda.com": "info",
     "invoice+statements@mail.anthropic.com": "info",
-    "contact@t.brevo.com": "action"
+    "contact@t.brevo.com": "action",
+    "info@freebieac.net": "hide"
   },
   "agniyoga_ad": {
     "yui.m@google.com": "unclear",
