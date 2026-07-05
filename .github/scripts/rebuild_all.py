@@ -1549,6 +1549,8 @@ function fallbackCopy(text,done){
 ③ 実技②：陸上部で実測してもらう（7月中）
 ④ 受験相談メール：本人が担当先生に送る
 
+📊 情報まとめ（Google Sheets）：<a href="https://docs.google.com/spreadsheets/d/1CLkgCwaM7RXm5hM268GfyPvOdnyKCv4YTdaYvLmp_TA/edit" target="_blank" rel="noopener">まとめシートを開く</a>
+
 8/22〜  出願登録開始（〜9/3）
 9/3    出願書類 郵送締切
 9月下旬  1次結果発表
