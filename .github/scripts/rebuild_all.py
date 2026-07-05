@@ -184,7 +184,102 @@ def parse_mail_date(date_str):
 
 def is_this_month(date_str, year, month):
     dt = parse_mail_date(date_str)
-    return dt and dt.year == year and dt.month == month
+    if not dt:
+        return False
+    if dt.tzinfo is not None:
+        dt = dt.astimezone(JST)  # 月境界をJSTで判定（Dateヘッダのオフセットのままだと月末深夜/月初未明で誤計上）
+    return dt.year == year and dt.month == month
+
+
+# ── KPI履歴（永続累積・暗号化） ────────────────────────────────────────
+# メール取得が「直近200件の窓」のため、古いメールが窓から外れるとKPIが減っていた。
+# → メールの一意キー（sha1）で月別に累積し、一度数えた件は二度と減らない・重複しない。
+KPI_HISTORY_FILE = os.path.join(REPO_DIR, 'kpi_history.enc')
+
+
+def _enc_load(path):
+    pw = os.environ.get('DASHBOARD_PW', '')
+    if not (pw and os.path.exists(path)):
+        return {}
+    try:
+        import base64
+        from cryptography.fernet import Fernet
+        from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+        from cryptography.hazmat.primitives import hashes
+        with open(path, encoding='utf-8') as f:
+            raw = json.load(f)
+        salt = base64.b64decode(raw['salt'])
+        kdf = PBKDF2HMAC(algorithm=hashes.SHA256(), length=32, salt=salt, iterations=480000)
+        fer = Fernet(base64.urlsafe_b64encode(kdf.derive(pw.encode())))
+        return json.loads(fer.decrypt(raw['token'].encode()))
+    except Exception as e:
+        print(f'{path} 復号失敗: {e}')
+        return {}
+
+
+def _enc_save(path, obj):
+    import base64
+    from cryptography.fernet import Fernet
+    from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+    from cryptography.hazmat.primitives import hashes
+    pw = os.environ.get('DASHBOARD_PW', '')
+    salt = os.urandom(16)
+    kdf = PBKDF2HMAC(algorithm=hashes.SHA256(), length=32, salt=salt, iterations=480000)
+    fer = Fernet(base64.urlsafe_b64encode(kdf.derive(pw.encode())))
+    token = fer.encrypt(json.dumps(obj, ensure_ascii=False).encode())
+    with open(path, 'w', encoding='utf-8') as f:
+        json.dump({'salt': base64.b64encode(salt).decode(), 'token': token.decode()}, f)
+
+
+def _mail_month_jst(date_str):
+    dt = parse_mail_date(date_str)
+    if not dt:
+        return None
+    if dt.tzinfo is not None:
+        dt = dt.astimezone(JST)
+    return f'{dt.year:04d}-{dt.month:02d}'
+
+
+def update_kpi_history(metric_lists):
+    """今回の取得窓に見えている件を月別・一意キーで累積する（CI＋DASHBOARD_PW時のみ）。"""
+    if not (CI_MODE and os.environ.get('DASHBOARD_PW', '')):
+        return {}
+    import hashlib as _h
+    hist = _enc_load(KPI_HISTORY_FILE)
+    months = hist.setdefault('months', {})
+    for metric, items in metric_lists.items():
+        for it in items:
+            ym = _mail_month_jst(it.get('date', ''))
+            if not ym:
+                continue
+            ent = months.setdefault(ym, {}).setdefault(metric, {'count': 0, 'keys': []})
+            key = _h.sha1((it.get('subject', '') + '|' + it.get('date', '') + '|' + it.get('from', '')).encode('utf-8')).hexdigest()[:16]
+            if key not in ent['keys']:
+                ent['keys'].append(key)
+                ent['count'] = len(ent['keys'])
+    _enc_save(KPI_HISTORY_FILE, hist)
+    return hist
+
+
+def generate_past_kpi_popup(hist, ym_now):
+    months = (hist or {}).get('months', {})
+    if not months:
+        return ''
+    rows = ''
+    for ym in sorted(months.keys(), reverse=True):
+        d = months[ym]
+        mark = '（今月・集計中）' if ym == ym_now else ''
+        rows += (f'<tr><td>{ym}{mark}</td><td>{d.get("trial",{}).get("count",0)}</td>'
+                 f'<td>{d.get("setsumeikai",{}).get("count",0)}</td><td>{d.get("shiryo",{}).get("count",0)}</td>'
+                 f'<td>{d.get("training",{}).get("count",0)}</td></tr>')
+    return ('<div style="text-align:right;margin-bottom:4px;"><button class="rebuild-btn" style="font-size:10px;padding:3px 10px;" '
+            'onclick="openPop(\'pop-kpi-history\')">📊 過去のKPI</button></div>'
+            '<div class="pop-overlay" id="pop-kpi-history" onclick="closePop(event)"><div class="pop-box">'
+            '<div style="font-weight:bold;margin-bottom:8px;">📊 過去のKPI（月別累計）</div>'
+            '<table class="pop-table"><tr><th>年月</th><th>体験</th><th>説明会</th><th>資料請求</th><th>養成講座</th></tr>'
+            + rows + '</table>'
+            '<div style="font-size:10px;color:var(--sub);margin-top:8px;">メール一意キーで累積カウント（取得窓落ち・重複の影響を受けない）。集計開始 2026-07-05。それ以前の月は集計対象外。</div>'
+            '</div></div>')
 
 def count_trials(trial_data, year, month):
     dummy_emails = {'manin@agniyoga.jp', 'kyoko.watanabe@agniyoga.jp'}
@@ -638,10 +733,16 @@ def _extract_date_short(item):
     dt = parse_mail_date(item.get('date', ''))
     return f'{dt.month}/{dt.day}' if dt else '?'
 
-def generate_kpi_section(trials, shiryo_list, setsumeikai_list, n_training, kpi_note, today, month):
+def generate_kpi_section(trials, shiryo_list, setsumeikai_list, n_training, kpi_note, today, month, hist_counts=None):
     n_trial       = len(trials)
     n_shiryo      = len(shiryo_list)
     n_setsumeikai = len(setsumeikai_list)
+    if hist_counts:
+        # 表示件数はKPI履歴（累積）を優先：取得窓から外れたメールの分が減らない
+        n_trial       = max(n_trial, hist_counts.get('trial', 0))
+        n_shiryo      = max(n_shiryo, hist_counts.get('shiryo', 0))
+        n_setsumeikai = max(n_setsumeikai, hist_counts.get('setsumeikai', 0))
+        n_training    = max(n_training, hist_counts.get('training', 0))
 
     def mail_rows(items, prefix, show_source=False):
         if not items:
@@ -1061,6 +1162,7 @@ function unblockUnifiedSender(account,domain){
   const key=account+'|'+domain;
   const local=_gub().filter(function(e){return _entryKey(e)!==key;});_sub(local);
   document.querySelectorAll('.mail-item[data-account="'+account+'"][data-domain="'+domain+'"]').forEach(function(el){el.style.display='';});
+  applyDoneState(_gd());applyJustHidden();
   renderUnifiedBlocklistUI();
   if(GH_TOKEN){updateSenderRules(function(rules){if(rules[account])delete rules[account][domain];});}
 }
@@ -1068,6 +1170,7 @@ function unblockCategoryUnifiedSender(account,domain,category){
   const key=account+'|'+domain+'|'+category;
   const local=_gubCat().filter(function(e){return _entryKey(e)!==key;});_subCat(local);
   document.querySelectorAll('.mail-item[data-account="'+account+'"][data-domain="'+domain+'"][data-category="'+category+'"]').forEach(function(el){el.style.display='';});
+  applyDoneState(_gd());applyJustHidden();
   renderUnifiedBlocklistUI();
   if(GH_TOKEN){updateSenderRules(function(rules){
     const cur=rules[account]&&rules[account][domain];
@@ -1128,6 +1231,7 @@ function applyDoneState(list){
   list.forEach(function(item){
     var el=document.getElementById(item.id);if(!el)return;
     el.classList.remove('archived');el.style.display='';
+    if(item.deleted){var db=el.querySelector('.done-time-badge');if(db)db.remove();el.querySelectorAll('.archive-btn.pressed').forEach(function(x){x.classList.remove('pressed');});return;}
     if(!item.cleaned&&now-item.completedAt<H12){
       el.classList.add('archived');
       addDoneBadge(el,item.completedAt,item.reason);
@@ -1143,7 +1247,7 @@ async function cleanupDoneNow(){
   let list=_gd(),sha=null;
   if(GH_TOKEN){const g=await ghGet();list=mergeDone(list,g.list);sha=g.sha;_sd(list);applyDoneState(list);}
   const now=Date.now(),H12=12*3600*1000;
-  const pending=list.filter(function(d){return !d.cleaned&&now-d.completedAt<H12;});
+  const pending=list.filter(function(d){return !d.deleted&&!d.cleaned&&now-d.completedAt<H12;});
   if(!pending.length){alert('片づける完了済みアイテムはありません（グレー表示のものが対象です）');return;}
   if(!confirm('完了・非表示にした '+pending.length+' 件をいますぐ画面から片づけます（完了履歴には残ります）。よろしいですか？'))return;
   pending.forEach(function(d){d.cleaned=true;});
@@ -1206,7 +1310,7 @@ function deleteExtraTask(id){
 function renderExtraTasks(){
   const el=document.getElementById('custom-extra-tasks');if(!el)return;
   const now=Date.now(),H12=12*3600*1000;
-  const doneMap={};_gd().forEach(function(d){doneMap[d.id]=d.completedAt;});
+  const doneMap={};_gd().forEach(function(d){if(!d.deleted)doneMap[d.id]=d.completedAt;});
   const list=_gxt().slice().sort(function(a,b){
     const ua=URGENCY_ORDER[a.urgency||'']??2,ub=URGENCY_ORDER[b.urgency||'']??2;
     return ua!==ub?ua-ub:a.addedAt-b.addedAt;
@@ -1269,9 +1373,12 @@ function archiveItem(id,reason,meta){
 function undoItem(id){
   const list=_gd();const item=list.find(function(i){return i.id===id;});
   const el=document.getElementById(id);
-  _sd(list.filter(function(i){return i.id!==id;}));
+  // エントリ削除でなく「取消マーカー(deleted)」を残す：単純削除だと他端末の古いローカルと
+  // マージされた際に完了状態が復活してしまうため（削除はマージで伝搬しない）
+  if(item){item.deleted=true;item.cleaned=false;item.completedAt=Date.now();}
+  _sd(list);
   if(el){el.classList.remove('archived');el.style.display='';const b=el.querySelector('.done-time-badge');if(b)b.remove();el.querySelectorAll('.archive-btn.pressed').forEach(function(btn){btn.classList.remove('pressed');});}
-  if(GH_TOKEN){ghGet().then(function(r){const merged=_gd().length?mergeDone(_gd(),r.list.filter(function(i){return i.id!==id;})):r.list.filter(function(i){return i.id!==id;});ghPut(merged,r.sha);});}
+  if(GH_TOKEN){ghGet().then(function(r){const merged=mergeDone(list,r.list);_sd(merged);ghPut(merged,r.sha);});}
   if(item&&item.meta){
     const m=item.meta;
     if(item.reason==='block')unblockUnifiedSender(m.account,m.domain);
@@ -1666,7 +1773,7 @@ function mergeDone(a,b){const m={};[...a,...b].forEach(function(i){const c=m[i.i
 var _ghSha=null;
 function render(list){
   var el=document.getElementById('hist-container');
-  list=list.slice().sort(function(a,b){return b.completedAt-a.completedAt;});
+  list=list.filter(function(i){return !i.deleted;}).slice().sort(function(a,b){return b.completedAt-a.completedAt;});
   if(!list.length){el.innerHTML='<p class="empty">完了済みタスクはありません</p>';return;}
   var now=Date.now(),H12=12*3600*1000;
   var recent=list.filter(function(i){return now-i.completedAt<H12;});
@@ -2096,10 +2203,16 @@ action_mail_html = generate_unified_mail_section(unified_mails, filter_categorie
 info_mail_html = generate_unified_mail_section(unified_mails, filter_categories={'info'})
 unclear_mail_html = generate_unified_mail_section(unified_mails, filter_categories={'unclear'})
 maybe_spam_mail_html = generate_unified_mail_section(unified_mails, filter_categories={'maybe_spam'})
+kpi_hist = update_kpi_history({'trial': trials, 'setsumeikai': setsumeikai_list,
+                               'shiryo': shiryo_list, 'training': training_list})
+_ym_now = f'{year:04d}-{month:02d}'
+_cur_hist = kpi_hist.get('months', {}).get(_ym_now, {})
 kpi_html         = generate_kpi_section(
     trials, shiryo_list, setsumeikai_list, n_training,
-    kpi_note, today, month
+    kpi_note, today, month,
+    hist_counts={k: v.get('count', 0) for k, v in _cur_hist.items()}
 )
+kpi_html = generate_past_kpi_popup(kpi_hist, _ym_now) + kpi_html
 routine_html = generate_routine_tasks(now.date())
 schedule_html = generate_schedule_section(calendar_events, now.date())
 today_calendar_tasks_html = generate_today_calendar_tasks(calendar_events, now.date())
