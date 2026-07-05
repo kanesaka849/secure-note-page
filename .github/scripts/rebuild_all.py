@@ -403,9 +403,14 @@ def generate_schedule_section(events, today_dt):
             tag_html = f'<span class="schedule-tag badge-{cat_color}">{cat_label}</span> '
             summary_html = f'<strong style="color:var(--red);">⚠️ {he(summary_text)}</strong>' if is_critical else he(summary_text)
             item_cls = 'schedule-item schedule-critical' if is_critical else 'schedule-item'
+            ev_id_js = he_attr(ev.get('id', '').replace('\\', '\\\\').replace("'", "\\'"))
+            summary_js = he_attr(summary_text.replace('\\', '\\\\').replace("'", "\\'"))
+            del_btn = (f'<button class="archive-btn cal-del-btn" title="Googleカレンダーからも削除する" '
+                       f'onclick="calDeleteEvent(\'{ev_id_js}\',\'{summary_js}\',this)">🗑</button>') if ev.get('id') else ''
             parts.append(f"""      <div class="{item_cls}">
         <div class="{date_cls}">{date_label}</div>
         <div class="schedule-content">{tag_html}{summary_html} {time_label}{loc}</div>
+        {del_btn}
       </div>""")
         parts.append('    </div>')
     return '\n'.join(parts)
@@ -723,6 +728,7 @@ DASHBOARD_TEMPLATE = """<!DOCTYPE html>
   .btn-add-task { color: var(--teal); border-color: var(--teal); }
   .btn-add-task.pressed { background: var(--teal); color: white; }
   .btn-hide { color: #6b7280; border-color: #9ca3af; font-size: 10px; }
+  .cal-del-btn { margin-left: auto; flex: none; color: #9ca3af; border-color: #d1d5db; font-size: 11px; }
   .task-title { font-size: 13px; font-weight: bold; margin-bottom: 4px; display: flex; align-items: center; gap: 6px; transition: color 0.15s; }
   .task-next  { font-size: 11px; color: var(--sub); line-height: 1.4; margin-top: 4px; }
   .task-next strong { color: var(--orange); }
@@ -875,6 +881,38 @@ function justHideMail(mid){const l=_gjh();if(l.indexOf(mid)<0){l.push(mid);_sjh(
 function applyJustHidden(){const l=_gjh();if(l.length){document.querySelectorAll('.mail-item').forEach(function(el){if(l.indexOf(el.id)>=0)el.style.display='none';});}_updateJustHiddenBtn();}
 function _updateJustHiddenBtn(){const n=_gjh().length;document.querySelectorAll('.jh-restore-btn').forEach(function(b){b.style.display=n?'':'none';b.textContent='個別非表示 '+n+'件を戻す';});}
 function restoreJustHidden(){if(!confirm('個別非表示にしたメールを全て再表示しますか？'))return;_sjh([]);location.reload();}
+// カレンダー予定の追加/削除：依頼を ci_trigger/calendar_requests.json にコミット
+// → push で reflect-mail 起動 → Actions が Google カレンダーへ反映して再ビルド
+function toggleCalForm(){const f=document.getElementById('cal-form');if(f)f.style.display=(f.style.display==='block')?'none':'block';}
+async function _calPutRequest(reqObj){
+  if(!GH_TOKEN){alert('GitHubトークンが設定されていません');return false;}
+  const path='ci_trigger/calendar_requests.json';
+  let sha=null,cur={requests:[]};
+  try{const g=await fetch(`https://api.github.com/repos/${GH_REPO}/contents/${path}`,{headers:{'Authorization':`token ${GH_TOKEN}`,'Accept':'application/vnd.github.v3+json'}});if(g.ok){const d=await g.json();sha=d.sha;try{cur=JSON.parse(decodeURIComponent(escape(atob(d.content.replace(/\\n/g,'')))));}catch(e){}}}catch(e){}
+  if(!cur.requests)cur.requests=[];
+  cur.requests.push(reqObj);
+  const body={message:'calendar request (dashboard)',content:btoa(unescape(encodeURIComponent(JSON.stringify(cur))))};
+  if(sha)body.sha=sha;
+  try{const r=await fetch(`https://api.github.com/repos/${GH_REPO}/contents/${path}`,{method:'PUT',headers:{'Authorization':`token ${GH_TOKEN}`,'Content-Type':'application/json','Accept':'application/vnd.github.v3+json'},body:JSON.stringify(body)});return r.ok;}catch(e){return false;}
+}
+async function calAddEvent(btn){
+  const title=document.getElementById('cal-title').value.trim();
+  const date=document.getElementById('cal-date').value;
+  const time=document.getElementById('cal-time').value;
+  if(!title||!date){alert('予定名と日付を入力してください');return;}
+  btn.disabled=true;btn.textContent='送信中…';
+  const ok=await _calPutRequest({action:'add',summary:title,date:date,time:time});
+  btn.textContent=ok?'✅ 送信済み（数分後にカレンダーへ反映）':'⚠️ 失敗';
+  if(ok)document.getElementById('cal-title').value='';
+  setTimeout(function(){btn.disabled=false;btn.textContent='Googleカレンダーに追加';},6000);
+}
+async function calDeleteEvent(eid,summary,btn){
+  if(!confirm('「'+summary+'」をGoogleカレンダーからも削除します。よろしいですか？'))return;
+  btn.disabled=true;btn.textContent='…';
+  const ok=await _calPutRequest({action:'delete',event_id:eid});
+  if(ok){const item=btn.closest('.schedule-item');if(item)item.style.opacity='0.35';btn.textContent='✅';}
+  else{btn.textContent='⚠️';btn.disabled=false;}
+}
 function _gubCat(){try{return JSON.parse(localStorage.getItem('ks_unified_hidden_cat_v1')||'[]');}catch{return[];}}  // [{key:"account|domain|category",label:"ノジマ"}, ...] カテゴリ限定非表示（△）
 function _subCat(list){localStorage.setItem('ks_unified_hidden_cat_v1',JSON.stringify(list));}
 function _entryKey(e){return typeof e==='string'?e:e.key;}
@@ -1317,7 +1355,17 @@ function fallbackCopy(text,done){
   </div>
 
   <!-- ═══ 近日の予定 ═══ -->
-  <div class="section-head">📅 近日の予定（Googleカレンダー連携）<span style="font-size:10px;font-weight:normal;margin-left:8px;color:var(--sub);">###CALENDAR_FETCHED###</span></div>
+  <div class="section-head">📅 近日の予定（Googleカレンダー連携）<button class="rt-toggle-btn" onclick="toggleCalForm()">＋ 予定追加</button><span style="font-size:10px;font-weight:normal;margin-left:8px;color:var(--sub);">###CALENDAR_FETCHED###</span></div>
+  <div class="rt-form" id="cal-form" style="margin:0 0 8px;">
+    <input type="text" id="cal-title" placeholder="予定名">
+    <input type="date" id="cal-date">
+    <input type="time" id="cal-time">
+    <span style="font-size:11px;color:var(--sub);">時刻を空にすると終日予定</span>
+    <div class="rt-form-btns">
+      <button class="rt-save-btn" onclick="calAddEvent(this)">Googleカレンダーに追加</button>
+      <button class="rt-cancel-btn" onclick="toggleCalForm()">キャンセル</button>
+    </div>
+  </div>
   <div class="grid">
 ###SCHEDULE_SECTION###
   </div>
