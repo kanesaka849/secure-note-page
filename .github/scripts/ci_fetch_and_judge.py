@@ -618,24 +618,49 @@ def _call_anthropic_advice(mail):
     return text, total
 
 
+# 認証・期限切れ系の要対応メールは🤖ボタンを押さなくても自動でAIアドバイスを付ける
+AUTO_ADVICE_KW = ('認証', '証明書', 'パスワード', '期限', '失効', 'セキュリティ', 'ログイン',
+                  '不正', 'アカウント', '有効期限', 'カード', 'お支払い', '更新して')
+AUTO_ADVICE_MAX_PER_RUN = 3  # 1回の実行での自動診断上限（コストガード・残りは次回に持ち越し）
+
+
+def _auto_advice_targets(unified_mails, store, requested_ids):
+    out = []
+    for m in unified_mails:
+        if m.get('category') != 'action':
+            continue
+        if m['id'] in store or m['id'] in requested_ids:
+            continue
+        text = f"{m.get('title', '')} {m.get('sub', '')} {m.get('detail', '')[:300]}"
+        if any(k in text for k in AUTO_ADVICE_KW):
+            out.append({'id': m['id'], 'auto': True})
+            if len(out) >= AUTO_ADVICE_MAX_PER_RUN:
+                break
+    return out
+
+
 def process_advice_requests(unified_mails):
-    """ダッシュボードの🤖ボタンで登録されたアドバイス依頼を処理する。"""
-    if not os.path.exists(ADVICE_REQ_FILE):
-        return
-    try:
-        with open(ADVICE_REQ_FILE, encoding='utf-8') as f:
-            reqs = json.load(f).get('requests', [])
-    except Exception as e:
-        print(f'アドバイス依頼ファイル読み込みエラー: {e}')
-        reqs = []
-    if not reqs:
-        return
+    """ダッシュボードの🤖ボタンで登録された依頼＋認証/期限系の自動対象を処理する。"""
+    reqs = []
+    if os.path.exists(ADVICE_REQ_FILE):
+        try:
+            with open(ADVICE_REQ_FILE, encoding='utf-8') as f:
+                reqs = json.load(f).get('requests', [])
+        except Exception as e:
+            print(f'アドバイス依頼ファイル読み込みエラー: {e}')
     if not DASHBOARD_PW:
-        print('DASHBOARD_PW未設定のためAIアドバイスをスキップ（依頼は保留のまま残します）')
+        if reqs:
+            print('DASHBOARD_PW未設定のためAIアドバイスをスキップ（依頼は保留のまま残します）')
         return
 
     by_id = {m['id']: m for m in unified_mails}
     store = load_advice_store()
+    auto = _auto_advice_targets(unified_mails, store, {r.get('id') for r in reqs})
+    if auto:
+        print(f'🤖 自動診断対象（認証/期限系）: {len(auto)}件')
+        reqs = reqs + auto
+    if not reqs:
+        return
     now_str = datetime.now(JST).strftime('%m/%d %H:%M')
     ok = ng = 0
     for r in reqs[:10]:  # 1回の実行で最大10件（コスト暴走ガード）

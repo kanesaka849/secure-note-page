@@ -496,6 +496,9 @@ def _schedule_category(summary):
     s = summary or ''
     if '裁判' in s:
         return ('裁判', 'red')
+    # 外部との面談・商談は裁判と同様に強調表示する（ユーザー指示 2026-07-05）
+    if any(k in s for k in ('面談', 'エフアンドエム', '商談', '来客', '打合せ', '打ち合わせ', '訪問')):
+        return ('外部MTG', 'orange')
     if 'リボーン' in s or '審判' in s or 'サッカー' in s:
         return ('サッカー', 'green')
     if 'mtg' in s.lower() or '会議' in s or 'ミーティング' in s:
@@ -541,9 +544,16 @@ def generate_schedule_section(events, today_dt):
             summary_text = ev.get('summary', '')
             cat_label, cat_color = _schedule_category(summary_text)
             is_critical = (cat_label == '裁判')
+            is_external = (cat_label == '外部MTG')
             tag_html = f'<span class="schedule-tag badge-{cat_color}">{cat_label}</span> '
-            summary_html = f'<strong style="color:var(--red);">⚠️ {he(summary_text)}</strong>' if is_critical else he(summary_text)
-            item_cls = 'schedule-item schedule-critical' if is_critical else 'schedule-item'
+            if is_critical:
+                summary_html = f'<strong style="color:var(--red);">⚠️ {he(summary_text)}</strong>'
+            elif is_external:
+                summary_html = f'<strong style="color:#b45309;">🤝 {he(summary_text)}</strong>'
+            else:
+                summary_html = he(summary_text)
+            item_cls = ('schedule-item schedule-critical' if is_critical
+                        else 'schedule-item schedule-external' if is_external else 'schedule-item')
             ev_id_js = he_attr(ev.get('id', '').replace('\\', '\\\\').replace("'", "\\'"))
             summary_js = he_attr(summary_text.replace('\\', '\\\\').replace("'", "\\'"))
             del_btn = (f'<button class="archive-btn cal-del-btn" title="Googleカレンダーからも削除する" '
@@ -578,10 +588,17 @@ def generate_today_calendar_tasks(events, today_dt):
         summary_text = ev.get('summary', '')
         cat_label, cat_color = _schedule_category(summary_text)
         is_critical = (cat_label == '裁判')
+        is_external = (cat_label == '外部MTG')
         time_label = '' if ev.get('all_day') else dt.strftime('%H:%M〜')
         tag_html = f'<span class="schedule-tag badge-{cat_color}">{cat_label}</span> '
-        title_html = f'<strong style="color:var(--red);">⚠️ {he(summary_text)}</strong>' if is_critical else he(summary_text)
-        cls = 'task-card extra schedule-critical' if is_critical else 'task-card extra'
+        if is_critical:
+            title_html = f'<strong style="color:var(--red);">⚠️ {he(summary_text)}</strong>'
+        elif is_external:
+            title_html = f'<strong style="color:#b45309;">🤝 {he(summary_text)}</strong>'
+        else:
+            title_html = he(summary_text)
+        cls = ('task-card extra schedule-critical' if is_critical
+               else 'task-card extra schedule-external' if is_external else 'task-card extra')
         parts.append(f"""        <div class="{cls}" id="{tid}">
           <div class="task-header">
             <div class="task-title">{tag_html}{title_html} {time_label}</div>
@@ -932,6 +949,8 @@ DASHBOARD_TEMPLATE = """<!DOCTYPE html>
   .schedule-content { flex: 1; font-size: 12px; line-height: 1.5; }
   .schedule-tag { font-size: 10px; padding: 1px 5px; border-radius: 8px; margin-right: 2px; }
   .schedule-critical { background: #fff5f5; border-left: 3px solid var(--red); padding-left: 6px; margin-left: -6px; border-radius: 4px; }
+  .schedule-external { background: #fffbeb; border-left: 3px solid #d97706; padding-left: 6px; margin-left: -6px; border-radius: 4px; }
+  .badge-orange { background: #fef3c7; color: #b45309; }
   .countdown-bar { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
   .countdown-item { text-align: center; background: #f8f9fa; border-radius: 8px; padding: 8px 12px; min-width: 85px; }
   .countdown-item .days  { font-size: 22px; font-weight: bold; color: var(--teal); }
@@ -1288,6 +1307,14 @@ function renderCustomRoutines(){const el=document.getElementById('custom-routine
 const XT_KEY='ks_extra_tasks_v1';
 function _gxt(){try{return JSON.parse(localStorage.getItem(XT_KEY)||'[]');}catch{return[];}}
 function _sxt(list){localStorage.setItem(XT_KEY,JSON.stringify(list));}
+// 追加タスクの端末間共有：GitHubのextra_tasks.jsonに同期（スマホ/PCで同じタスク一覧になる）。
+// detail（メール本文）は公開リポジトリに置かないため同期対象外＝端末内のみ（他端末では画面上のメールから取得）。
+// 削除は墓標(deleted)方式・更新はts(最新優先)でマージ＝done_stateと同じ設計原則。
+const GH_XT='extra_tasks.json';
+function mergeXt(a,b){const m={};[...a,...b].forEach(function(t){const c=m[t.id];const ts=t.ts||t.addedAt||0;const cts=c?(c.ts||c.addedAt||0):-1;if(!c||ts>cts){const keep=Object.assign({},t);if(c&&c.detail&&!keep.detail)keep.detail=c.detail;m[t.id]=keep;}else if(t.detail&&!c.detail){c.detail=t.detail;}});return Object.values(m);}
+async function ghGetXt(){try{const r=await fetch(`https://api.github.com/repos/${GH_REPO}/contents/${GH_XT}`,{headers:{'Authorization':`token ${GH_TOKEN}`,'Accept':'application/vnd.github.v3+json'}});if(!r.ok)return{list:[],sha:null};const d=await r.json();const l=JSON.parse(decodeURIComponent(escape(atob(d.content.replace(/\\n/g,'')))));return{list:Array.isArray(l)?l:[],sha:d.sha};}catch(e){return{list:[],sha:null};}}
+async function ghPutXt(list,sha){for(let i=0;i<3;i++){try{const pub=list.map(function(t){return{id:t.id,name:t.name,source:t.source,urgency:t.urgency||'',mailId:t.mailId,addedAt:t.addedAt,ts:t.ts||t.addedAt,deleted:!!t.deleted};});const b=btoa(unescape(encodeURIComponent(JSON.stringify(pub))));const body={message:'sync tasks',content:b};if(sha)body.sha=sha;const r=await fetch(`https://api.github.com/repos/${GH_REPO}/contents/${GH_XT}`,{method:'PUT',headers:{'Authorization':`token ${GH_TOKEN}`,'Content-Type':'application/json','Accept':'application/vnd.github.v3+json'},body:JSON.stringify(body)});if(r.status===200||r.status===201)return;}catch(e){}const g=await ghGetXt();list=mergeXt(list,g.list);sha=g.sha;_sxt(list);}}
+function syncXt(){if(!GH_TOKEN)return;ghGetXt().then(function(r){const merged=mergeXt(_gxt(),r.list);_sxt(merged);renderExtraTasks();ghPutXt(merged,r.sha);});}
 const URGENCY_ICON={urgent:'🔴',soon:'🟡'};
 const URGENCY_ORDER={urgent:0,soon:1,'':2};
 function addMailToTaskList(mailId,title,btn){
@@ -1296,7 +1323,7 @@ function addMailToTaskList(mailId,title,btn){
   if(!list.find(t=>t.id===taskId)){
     let detail='';
     try{const src=document.getElementById(mailId);if(src){const f=src.querySelector('.detail-from'),b=src.querySelector('.detail-body');detail=((f?f.textContent:'')+String.fromCharCode(10,10)+(b?b.textContent:'')).trim();}}catch(e){}
-    list.push({id:taskId,name:title,source:'mail',mailId,urgency:'',detail:detail,addedAt:Date.now()});_sxt(list);renderExtraTasks();}
+    list.push({id:taskId,name:title,source:'mail',mailId,urgency:'',detail:detail,addedAt:Date.now(),ts:Date.now()});_sxt(list);renderExtraTasks();syncXt();}
   if(btn){btn.textContent='✓追加済';btn.disabled=true;btn.classList.add('pressed');}
 }
 function toggleExtraTaskForm(){const f=document.getElementById('extra-task-form');if(f)f.classList.toggle('open');}
@@ -1315,23 +1342,24 @@ function addExtraTask(){
   const u=document.getElementById('extra-task-urgency').value;
   if(!n)return;
   const list=_gxt();
-  list.push({id:'xt-'+Date.now(),name:n,source:'manual',urgency:u,addedAt:Date.now()});
-  _sxt(list);renderExtraTasks();
+  list.push({id:'xt-'+Date.now(),name:n,source:'manual',urgency:u,addedAt:Date.now(),ts:Date.now()});
+  _sxt(list);renderExtraTasks();syncXt();
   document.getElementById('extra-task-name').value='';
   document.getElementById('extra-task-form').classList.remove('open');
 }
 function deleteExtraTask(id){
   if(!confirm('このタスクを削除しますか？（後で元に戻せます）'))return;
-  const t=_gxt().find(function(x){return x.id===id;});
-  _sxt(_gxt().filter(function(x){return x.id!==id;}));
-  if(t){const list=_gtr();list.push({id:t.id,kind:'extra',name:t.name,source:t.source,urgency:t.urgency||'',mailId:t.mailId,detail:t.detail||'',deletedAt:Date.now()});_str(list);}
-  renderExtraTasks();renderTrash();
+  const list=_gxt();const t=list.find(function(x){return x.id===id;});
+  if(t){t.deleted=true;t.ts=Date.now();}
+  _sxt(list);
+  if(t){const tr=_gtr();tr.push({id:t.id,kind:'extra',name:t.name,source:t.source,urgency:t.urgency||'',mailId:t.mailId,detail:t.detail||'',deletedAt:Date.now()});_str(tr);}
+  renderExtraTasks();renderTrash();syncXt();
 }
 function renderExtraTasks(){
   const el=document.getElementById('custom-extra-tasks');if(!el)return;
   const now=Date.now(),H12=12*3600*1000;
   const doneMap={};_gd().forEach(function(d){if(!d.deleted)doneMap[d.id]=d.completedAt;});
-  const list=_gxt().slice().sort(function(a,b){
+  const list=_gxt().filter(function(t){return !t.deleted;}).sort(function(a,b){
     const ua=URGENCY_ORDER[a.urgency||'']??2,ub=URGENCY_ORDER[b.urgency||'']??2;
     return ua!==ub?ua-ub:a.addedAt-b.addedAt;
   });
@@ -1362,7 +1390,7 @@ function restoreTrashItem(id){
   const list=_gtr();const idx=list.findIndex(function(t){return t.id===id;});if(idx<0)return;
   const item=list[idx];list.splice(idx,1);_str(list);
   if(item.kind==='routine'){const rl=_gr();rl.push({id:item.id,name:item.name,freq:item.freq});_sr(rl);renderCustomRoutines();}
-  else if(item.kind==='extra'){const xl=_gxt();xl.push({id:item.id,name:item.name,source:item.source||'manual',urgency:item.urgency||'',mailId:item.mailId,detail:item.detail||'',addedAt:Date.now()});_sxt(xl);renderExtraTasks();}
+  else if(item.kind==='extra'){const xl=_gxt();const ex=xl.find(function(x){return x.id===item.id;});if(ex){ex.deleted=false;ex.ts=Date.now();if(!ex.detail&&item.detail)ex.detail=item.detail;}else{xl.push({id:item.id,name:item.name,source:item.source||'manual',urgency:item.urgency||'',mailId:item.mailId,detail:item.detail||'',addedAt:Date.now(),ts:Date.now()});}_sxt(xl);renderExtraTasks();syncXt();}
   else if(item.kind==='builtin'){const el2=document.getElementById(item.id);if(el2)el2.style.display='';}
   renderTrash();
 }
@@ -1722,6 +1750,7 @@ function fallbackCopy(text,done){
   loadApiCost();
   applyUnifiedBlocklist();
   applyJustHidden();
+  syncXt();
   if(GH_TOKEN){ghGetSenderRules().then(function(r){
     const hidden=[];
     Object.keys(r.rules||{}).forEach(function(acct){
