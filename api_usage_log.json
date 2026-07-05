@@ -2105,5 +2105,26 @@
     "input_tokens": 31900,
     "output_tokens": 1195,
     "estimated_cost_usd": 0.21937
+  },
+  {
+    "timestamp": "2026-07-05T09:24:03.711167+00:00",
+    "model": "claude-haiku-4-5-20251001",
+    "input_tokens": 1273,
+    "output_tokens": 174,
+    "estimated_cost_usd": 0.00214
+  },
+  {
+    "timestamp": "2026-07-05T09:24:08.718743+00:00",
+    "model": "claude-haiku-4-5-20251001",
+    "input_tokens": 2363,
+    "output_tokens": 658,
+    "estimated_cost_usd": 0.00565
+  },
+  {
+    "timestamp": "2026-07-05T09:24:47.823789+00:00",
+    "model": "claude-opus-4-8",
+    "input_tokens": 46741,
+    "output_tokens": 1417,
+    "estimated_cost_usd": 0.29913
   }
 ]
