@@ -228,7 +228,8 @@
     "no-reply@agoda.com": "info"
   },
   "agniyoga_ad": {
-    "yui.m@google.com": "unclear"
+    "yui.m@google.com": "unclear",
+    "google.com": "action"
   },
   "zipyoga": {
     "mailer-daemon@mail-gw-fk005.vdone.jp": "unclear",
