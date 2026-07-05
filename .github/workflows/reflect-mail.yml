@@ -2,6 +2,9 @@ name: reflect-mail
 
 on:
   workflow_dispatch: {}
+  push:
+    paths:
+      - 'ci_trigger/**'
 
 permissions:
   contents: write
