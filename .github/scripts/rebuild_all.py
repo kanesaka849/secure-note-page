@@ -1004,7 +1004,7 @@ function renderUnifiedBlocklistUI(){
   });
   el.innerHTML=fullRows.concat(catRows).join('');
 }
-function mergeDone(a,b){const m={};[...a,...b].forEach(function(i){if(!m[i.id]||i.completedAt>m[i.id].completedAt)m[i.id]=i;});return Object.values(m);}
+function mergeDone(a,b){const m={};[...a,...b].forEach(function(i){const c=m[i.id];if(!c||i.completedAt>c.completedAt){m[i.id]=Object.assign({},i);if(c&&c.cleaned)m[i.id].cleaned=true;}else if(i.cleaned){c.cleaned=true;}});return Object.values(m);}
 function fmtDoneTime(ts){
   var d=new Date(ts);
   return (d.getMonth()+1)+'/'+d.getDate()+' '+String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');
@@ -1036,7 +1036,7 @@ function applyDoneState(list){
   list.forEach(function(item){
     var el=document.getElementById(item.id);if(!el)return;
     el.classList.remove('archived');el.style.display='';
-    if(now-item.completedAt<H12){
+    if(!item.cleaned&&now-item.completedAt<H12){
       el.classList.add('archived');
       addDoneBadge(el,item.completedAt,item.reason);
     }else{
@@ -1044,6 +1044,16 @@ function applyDoneState(list){
     }
   });
   document.querySelectorAll('[id^="r-"]').forEach(function(el){if(el.style.display==='none'||el.classList.contains('archived'))return;var base=el.id.replace(/-\\d{8}$/,'');if(doneBase[base]&&now-doneBase[base]<H7D)el.style.display='none';});
+}
+function cleanupDoneNow(){
+  const now=Date.now(),H12=12*3600*1000;
+  const list=_gd();
+  const pending=list.filter(function(d){return !d.cleaned&&now-d.completedAt<H12;});
+  if(!pending.length){alert('片づける完了済みアイテムはありません（グレー表示のものが対象です）');return;}
+  if(!confirm('完了・非表示にした '+pending.length+' 件をいますぐ画面から片づけます（完了履歴には残ります）。よろしいですか？'))return;
+  pending.forEach(function(d){d.cleaned=true;});
+  _sd(list);applyDoneState(list);renderExtraTasks();
+  if(GH_TOKEN){ghGet().then(function(r){const merged=mergeDone(list,r.list);_sd(merged);ghPut(merged,r.sha);});}
 }
 function toggleKpiDetail(id){const el=document.getElementById(id);if(!el)return;const open=el.classList.contains('open');document.querySelectorAll('.kpi-mail-detail.open').forEach(e=>e.classList.remove('open'));if(!open)el.classList.add('open');}
 function openPop(id){document.querySelectorAll('.pop-overlay').forEach(e=>e.classList.remove('open'));var el=document.getElementById(id);if(el)el.classList.add('open');}
@@ -1064,10 +1074,23 @@ const URGENCY_ORDER={urgent:0,soon:1,'':2};
 function addMailToTaskList(mailId,title,btn){
   const taskId='mt-'+mailId;
   const list=_gxt();
-  if(!list.find(t=>t.id===taskId)){list.push({id:taskId,name:title,source:'mail',mailId,urgency:'',addedAt:Date.now()});_sxt(list);renderExtraTasks();}
+  if(!list.find(t=>t.id===taskId)){
+    let detail='';
+    try{const src=document.getElementById(mailId);if(src){const f=src.querySelector('.detail-from'),b=src.querySelector('.detail-body');detail=((f?f.textContent:'')+String.fromCharCode(10,10)+(b?b.textContent:'')).trim();}}catch(e){}
+    list.push({id:taskId,name:title,source:'mail',mailId,urgency:'',detail:detail,addedAt:Date.now()});_sxt(list);renderExtraTasks();}
   if(btn){btn.textContent='✓追加済';btn.disabled=true;btn.classList.add('pressed');}
 }
 function toggleExtraTaskForm(){const f=document.getElementById('extra-task-form');if(f)f.classList.toggle('open');}
+function toggleTaskDetail(taskId){
+  const el=document.getElementById('td-'+taskId);if(!el)return;
+  if(el.style.display==='none'){
+    const t=_gxt().find(function(x){return x.id===taskId;});
+    let detail=(t&&t.detail)||'';
+    if(!detail&&t&&t.mailId){const src=document.getElementById(t.mailId);if(src){const f=src.querySelector('.detail-from'),b=src.querySelector('.detail-body');detail=((f?f.textContent:'')+String.fromCharCode(10,10)+(b?b.textContent:'')).trim();}}
+    el.textContent=detail||'（メール本文が見つかりませんでした。メール一覧から消えた古いメールの可能性があります）';
+    el.style.display='block';
+  }else{el.style.display='none';}
+}
 function addExtraTask(){
   const n=document.getElementById('extra-task-name').value.trim();
   const u=document.getElementById('extra-task-urgency').value;
@@ -1082,7 +1105,7 @@ function deleteExtraTask(id){
   if(!confirm('このタスクを削除しますか？（後で元に戻せます）'))return;
   const t=_gxt().find(function(x){return x.id===id;});
   _sxt(_gxt().filter(function(x){return x.id!==id;}));
-  if(t){const list=_gtr();list.push({id:t.id,kind:'extra',name:t.name,source:t.source,urgency:t.urgency||'',mailId:t.mailId,deletedAt:Date.now()});_str(list);}
+  if(t){const list=_gtr();list.push({id:t.id,kind:'extra',name:t.name,source:t.source,urgency:t.urgency||'',mailId:t.mailId,detail:t.detail||'',deletedAt:Date.now()});_str(list);}
   renderExtraTasks();renderTrash();
 }
 function renderExtraTasks(){
@@ -1099,7 +1122,10 @@ function renderExtraTasks(){
     const urgCls=t.urgency?' urgency-'+t.urgency:'';
     const cls=(doneAt?'task-card extra archived':'task-card extra')+urgCls;
     const icon=t.source==='mail'?'📧':(URGENCY_ICON[t.urgency]||'📝');
-    return `<div class="${cls}" id="${t.id}"><div class="task-header"><div class="task-title"><span class="badge badge-blue">${icon}</span> ${_esc(t.name)}</div><button class="archive-btn btn-check" title="完了" onclick="event.stopPropagation();archiveItem('${t.id}')">✓</button><button class="rt-del-btn" onclick="event.stopPropagation();deleteExtraTask('${t.id}')" title="削除">✕</button></div></div>`;
+    const isMail=t.source==='mail';
+    const titleClick=isMail?` onclick="toggleTaskDetail('${t.id}')" style="cursor:pointer;" title="クリックでメール本文を表示"`:'';
+    const detailDiv=isMail?`<div class="task-mail-detail" id="td-${t.id}" style="display:none;white-space:pre-wrap;word-break:break-word;font-size:12px;color:var(--sub);margin-top:6px;border-top:1px dashed var(--border);padding-top:6px;"></div>`:'';
+    return `<div class="${cls}" id="${t.id}"><div class="task-header"><div class="task-title"${titleClick}><span class="badge badge-blue">${icon}</span> ${_esc(t.name)}</div><button class="archive-btn btn-check" title="完了" onclick="event.stopPropagation();archiveItem('${t.id}')">✓</button><button class="rt-del-btn" onclick="event.stopPropagation();deleteExtraTask('${t.id}')" title="削除">✕</button></div>${detailDiv}</div>`;
   }).join('');
 }
 const TR_KEY='ks_trash_v1';
@@ -1117,7 +1143,7 @@ function restoreTrashItem(id){
   const list=_gtr();const idx=list.findIndex(function(t){return t.id===id;});if(idx<0)return;
   const item=list[idx];list.splice(idx,1);_str(list);
   if(item.kind==='routine'){const rl=_gr();rl.push({id:item.id,name:item.name,freq:item.freq});_sr(rl);renderCustomRoutines();}
-  else if(item.kind==='extra'){const xl=_gxt();xl.push({id:item.id,name:item.name,source:item.source||'manual',urgency:item.urgency||'',mailId:item.mailId,addedAt:Date.now()});_sxt(xl);renderExtraTasks();}
+  else if(item.kind==='extra'){const xl=_gxt();xl.push({id:item.id,name:item.name,source:item.source||'manual',urgency:item.urgency||'',mailId:item.mailId,detail:item.detail||'',addedAt:Date.now()});_sxt(xl);renderExtraTasks();}
   else if(item.kind==='builtin'){const el2=document.getElementById(item.id);if(el2)el2.style.display='';}
   renderTrash();
 }
@@ -1328,6 +1354,7 @@ function fallbackCopy(text,done){
   <div class="section-head" id="unified-mail">📬 全メール一覧（AI仕分け・全アカウント統合）<span style="font-size:10px;font-weight:normal;margin-left:8px;color:var(--sub);">###UNIFIED_MAIL_FETCHED###</span>
     <button class="rebuild-btn" style="font-size:10px;padding:3px 10px;margin-left:auto;" onclick="toggleUnifiedBlocklistUI()">🚫 非表示リスト</button>
     <button class="rebuild-btn jh-restore-btn" style="font-size:10px;padding:3px 10px;display:none;" onclick="restoreJustHidden()">個別非表示を戻す</button>
+    <button class="rebuild-btn" style="font-size:10px;padding:3px 10px;" onclick="cleanupDoneNow()" title="グレー表示（完了・非表示済み）のアイテムを12時間待たずにいますぐ履歴へ移動する">🧹 完了分を片づけ</button>
   </div>
   <div class="first-view">
     <div class="fv-col">
@@ -1540,7 +1567,7 @@ function _esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/
 function fmtDate(ts){var d=new Date(ts);return(d.getMonth()+1)+'/'+d.getDate()+' '+d.getHours()+':'+String(d.getMinutes()).padStart(2,'0');}
 async function ghGet(){try{const r=await fetch('https://api.github.com/repos/'+GH_REPO+'/contents/'+GH_DONE,{headers:{'Authorization':'token '+GH_TOKEN,'Accept':'application/vnd.github.v3+json'}});if(!r.ok)return{list:[],sha:null};const d=await r.json();return{list:JSON.parse(decodeURIComponent(escape(atob(d.content.replace(/\\n/g,''))))),sha:d.sha};}catch(e){return{list:[],sha:null};}}
 async function ghPut(list,sha){try{const b=btoa(unescape(encodeURIComponent(JSON.stringify(list))));const body={message:'sync',content:b};if(sha)body.sha=sha;await fetch('https://api.github.com/repos/'+GH_REPO+'/contents/'+GH_DONE,{method:'PUT',headers:{'Authorization':'token '+GH_TOKEN,'Content-Type':'application/json','Accept':'application/vnd.github.v3+json'},body:JSON.stringify(body)});}catch(e){}}
-function mergeDone(a,b){const m={};[...a,...b].forEach(function(i){if(!m[i.id]||i.completedAt>m[i.id].completedAt)m[i.id]=i;});return Object.values(m);}
+function mergeDone(a,b){const m={};[...a,...b].forEach(function(i){const c=m[i.id];if(!c||i.completedAt>c.completedAt){m[i.id]=Object.assign({},i);if(c&&c.cleaned)m[i.id].cleaned=true;}else if(i.cleaned){c.cleaned=true;}});return Object.values(m);}
 var _ghSha=null;
 function render(list){
   var el=document.getElementById('hist-container');
