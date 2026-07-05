@@ -74,6 +74,7 @@ jobs:
           git add ci_trigger/calendar_requests.json 2>/dev/null || true
           git add ci_trigger/advice_requests.json 2>/dev/null || true
           git add advice_store.enc 2>/dev/null || true
+          git add kpi_history.enc 2>/dev/null || true
           git diff --cached --quiet && echo "No changes" && exit 0
           git commit -m "reflect-mail: auto update $(date -u +%Y-%m-%dT%H:%M:%SZ) [skip ci]"
           # 実行中（数分間）にダッシュボードのボタン操作（✕/✓/🤖AI等）がmainへコミットすると
@@ -86,7 +87,7 @@ jobs:
             git fetch origin main
             if ! git rebase origin/main; then
               git checkout --ours sender_rules.json ci_trigger/calendar_requests.json ci_trigger/advice_requests.json 2>/dev/null || true
-              git checkout --theirs kanesaka-tasks.html kanesaka-mail-all.html kanesaka-task-history.html kanesaka-mail-rules.html api_usage_log.json advice_store.enc 2>/dev/null || true
+              git checkout --theirs kanesaka-tasks.html kanesaka-mail-all.html kanesaka-task-history.html kanesaka-mail-rules.html api_usage_log.json advice_store.enc kpi_history.enc 2>/dev/null || true
               git add -A
               GIT_EDITOR=true git rebase --continue || git rebase --abort
             fi
