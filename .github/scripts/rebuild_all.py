@@ -39,6 +39,32 @@ TRIAL_FILE         = os.path.join(INPUT_DIR, "mail_trial_agniyoga.json")
 SCHOOL_FILE        = os.path.join(INPUT_DIR, "mail_school_agniyoga.json")
 UNIFIED_MAIL_FILE = os.path.join(INPUT_DIR, "mail_unified.json")
 CALENDAR_FILE = os.path.join(INPUT_DIR, "calendar_events.json")
+ADVICE_STORE_FILE = os.path.join(REPO_DIR, "advice_store.enc")
+
+
+def _load_advice_store():
+    """🤖AIアドバイス結果（ci_fetch_and_judge.pyがDASHBOARD_PWで暗号化保存）を復号する。
+    PWが無い環境（ローカル実行等）では空dict＝アドバイス非表示。"""
+    pw = os.environ.get('DASHBOARD_PW', '')
+    if not (pw and os.path.exists(ADVICE_STORE_FILE)):
+        return {}
+    try:
+        import base64
+        from cryptography.fernet import Fernet
+        from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+        from cryptography.hazmat.primitives import hashes
+        with open(ADVICE_STORE_FILE, encoding='utf-8') as f:
+            raw = json.load(f)
+        salt = base64.b64decode(raw['salt'])
+        kdf = PBKDF2HMAC(algorithm=hashes.SHA256(), length=32, salt=salt, iterations=480000)
+        fernet = Fernet(base64.urlsafe_b64encode(kdf.derive(pw.encode())))
+        return json.loads(fernet.decrypt(raw['token'].encode()))
+    except Exception as e:
+        print(f'advice_store復号失敗（アドバイス表示をスキップ）: {e}')
+        return {}
+
+
+ADVICE_STORE = _load_advice_store()
 
 OUT_MAIN  = os.path.join(OUTPUT_DIR, "kanesaka_tasks_secure.html" if not CI_MODE else "kanesaka-tasks.html")
 OUT_MAIL  = os.path.join(OUTPUT_DIR, "kanesaka-mail-all-secure.html" if not CI_MODE else "kanesaka-mail-all.html")
@@ -519,12 +545,29 @@ def generate_unified_mail_section(mails, filter_categories=None):
                      f'onclick="event.stopPropagation();justHideMail(\'{mid}\')">隠す</button>')
         recommend = he(m.get('recommend', ''))
         recommend_html = f'<div class="mail-recommend">💡 {recommend}</div>' if recommend else ''
+        adv = ADVICE_STORE.get(mid)
+        advice_btn = ('' if adv and not adv.get('error') else
+                      f'<button class="archive-btn btn-advice" title="AIがWeb調査してスパムか本物か・どう対応すべきかをアドバイスします（依頼後、次のメール反映時に生成）" '
+                      f'onclick="event.stopPropagation();requestAdvice(\'{mid}\',this)">🤖</button>')
+        if adv:
+            if adv.get('error'):
+                advice_html = (f'<div class="mail-advice">🤖 AIアドバイス（{he(adv.get("checked",""))}）：'
+                               f'{he(adv.get("error",""))}</div>')
+            else:
+                advice_html = (f'<div class="mail-advice">🤖 <b>AIアドバイス</b>（{he(adv.get("checked",""))}）　'
+                               f'スパム可能性：<b>{he(adv.get("spam_risk",""))}</b>　／　{he(adv.get("genuine",""))}<br>'
+                               f'{he(adv.get("summary",""))}<br>'
+                               f'<b>対応：</b>{he(adv.get("advice",""))}<br>'
+                               f'<span class="advice-evidence">根拠：{he(adv.get("evidence",""))}</span></div>')
+        else:
+            advice_html = ''
         copy_text = he_attr(f"{m.get('from_info','')}\n\n{m.get('detail','')}")
         parts.append(f"""        <div class="mail-item {cls}" id="{mid}" data-domain="{domain}" data-account="{account}" data-category="{category}">
           <div class="mail-header" onclick="toggleDetail('{mid}')">
             <div class="mail-title"><span class="acct-badge {acct_cls}">{acct_label}</span> {he(m.get('title',''))}</div>
             {block_btn}
             {block_cat_btn}
+            {advice_btn}
             {add_task_btn}
             {hide_btn}
             <button class="archive-btn btn-check" title="この1件だけ完了・非表示にする（送信元は今後も表示されます）" onclick="event.stopPropagation();archiveItem('{mid}')">✓</button>
@@ -532,6 +575,7 @@ def generate_unified_mail_section(mails, filter_categories=None):
           <div class="mail-to">{meta}</div>
           <div class="mail-sub">{he(m.get('sub',''))}</div>
           {recommend_html}
+          {advice_html}
           <div class="mail-detail"><button class="copy-btn" title="メール内容をコピー" onclick="event.stopPropagation();copyMailText(this)" data-copy="{copy_text}">📋 コピー</button><div class="detail-from">{he(m.get('from_info',''))}</div><div class="detail-body">{he(m.get('detail',''))}</div></div>
         </div>""")
     return '\n'.join(parts)
@@ -690,6 +734,9 @@ DASHBOARD_TEMPLATE = """<!DOCTYPE html>
   .archive-btn.btn-check.pressed { background: var(--green); color: white; border-color: var(--green); font-weight: bold; }
   .archive-btn.btn-x.pressed { background: #dc2626; color: white; border-color: #dc2626; font-weight: bold; }
   .archive-btn.btn-triangle.pressed { background: #d97706; color: white; border-color: #d97706; font-weight: bold; }
+  .archive-btn.btn-advice:hover { background: #6366f1; color: white; border-color: #6366f1; }
+  .mail-advice { font-size: 11px; line-height: 1.8; margin-top: 6px; padding: 8px 10px; border-radius: 6px; background: #eef2ff; border: 1px solid #c7d2fe; color: #3730a3; }
+  .mail-advice .advice-evidence { color: #6366f1; font-size: 10px; }
   .mail-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 6px; margin-bottom: 3px; cursor: pointer; }
   .mail-header:hover .mail-title { color: var(--blue); }
   .mail-item { padding: 8px 10px; border-radius: 6px; margin-bottom: 2px; border-left: 4px solid; position: relative; }
@@ -872,6 +919,24 @@ async function loadApiCost(){
 const GH_SENDER_RULES='sender_rules.json';
 async function ghGetSenderRules(){try{const r=await fetch(`https://api.github.com/repos/${GH_REPO}/contents/${GH_SENDER_RULES}`,{headers:{'Authorization':`token ${GH_TOKEN}`,'Accept':'application/vnd.github.v3+json'}});if(!r.ok)return{rules:{},sha:null};const d=await r.json();return{rules:JSON.parse(decodeURIComponent(escape(atob(d.content.replace(/\\n/g,''))))),sha:d.sha};}catch(e){return{rules:{},sha:null};}}
 async function ghPutSenderRules(rules,sha){try{const b=btoa(unescape(encodeURIComponent(JSON.stringify(rules))));const body={message:'update sender rules (manual)',content:b};if(sha)body.sha=sha;await fetch(`https://api.github.com/repos/${GH_REPO}/contents/${GH_SENDER_RULES}`,{method:'PUT',headers:{'Authorization':`token ${GH_TOKEN}`,'Content-Type':'application/json','Accept':'application/vnd.github.v3+json'},body:JSON.stringify(body)});}catch(e){}}
+// 🤖AIアドバイス依頼：ci_trigger/advice_requests.jsonに依頼を追記コミット→push起動のreflect-mailが
+// Web検索つきAI判定（スパムか本物か・推奨対応）を生成し、次回ビルドで該当メールの下に表示される
+const GH_ADVICE_REQ='ci_trigger/advice_requests.json';
+async function requestAdvice(mid,btn){
+  if(!GH_TOKEN){alert('GitHubトークンが設定されていません');return;}
+  if(btn){btn.disabled=true;btn.textContent='⏳';}
+  try{
+    let cur={requests:[]},sha=null;
+    try{const g=await fetch(`https://api.github.com/repos/${GH_REPO}/contents/${GH_ADVICE_REQ}`,{headers:{'Authorization':`token ${GH_TOKEN}`,'Accept':'application/vnd.github.v3+json'}});if(g.ok){const d=await g.json();sha=d.sha;cur=JSON.parse(decodeURIComponent(escape(atob(d.content.replace(/\\n/g,'')))));}}catch(e){}
+    if(!Array.isArray(cur.requests))cur.requests=[];
+    if(!cur.requests.some(function(r){return r.id===mid;}))cur.requests.push({id:mid,requested:new Date().toISOString()});
+    const body={message:'advice request (dashboard)',content:btoa(unescape(encodeURIComponent(JSON.stringify(cur))))};
+    if(sha)body.sha=sha;
+    const r=await fetch(`https://api.github.com/repos/${GH_REPO}/contents/${GH_ADVICE_REQ}`,{method:'PUT',headers:{'Authorization':`token ${GH_TOKEN}`,'Content-Type':'application/json','Accept':'application/vnd.github.v3+json'},body:JSON.stringify(body)});
+    if(r.status===200||r.status===201){if(btn)btn.textContent='依頼済';alert('AIアドバイスを依頼しました。自動でメール反映が実行され、数分後に「🔃 更新」で表示されます。');}
+    else{if(btn){btn.disabled=false;btn.textContent='🤖';}alert('依頼に失敗しました（'+r.status+'）');}
+  }catch(e){if(btn){btn.disabled=false;btn.textContent='🤖';}alert('依頼に失敗しました');}
+}
 function _gub(){try{return JSON.parse(localStorage.getItem('ks_unified_hidden_v1')||'[]');}catch{return[];}}  // [{key:"account|domain",label:"ノジマ"}, ...] 完全非表示（×）
 function _sub(list){localStorage.setItem('ks_unified_hidden_v1',JSON.stringify(list));}
 // 個別非表示：この端末のlocalStorageのみ・sender_rules/done_stateに書かない＝AI判定に影響ゼロ

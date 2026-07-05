@@ -69,6 +69,14 @@ ANTHROPIC_MODEL    = os.environ.get('ANTHROPIC_MODEL', 'claude-haiku-4-5-2025100
 PRICE_PER_M_INPUT  = float(os.environ.get('PRICE_PER_M_INPUT', '1.0'))   # USD / 1M input tokens
 PRICE_PER_M_OUTPUT = float(os.environ.get('PRICE_PER_M_OUTPUT', '5.0'))  # USD / 1M output tokens
 
+# AIアドバイス（🤖ボタン・メール1通のスパム/本物判定＋対応提案）は精度優先で上位モデル＋Web検索を使う。
+# 一括仕分け（haiku）とは別軸のオンデマンド機能のため件数は少なく、1件あたり概算$0.05〜0.15。
+ADVICE_MODEL = os.environ.get('ADVICE_MODEL', 'claude-opus-4-8')
+ADVICE_PRICE_PER_M_INPUT  = 5.0    # USD / 1M input tokens（claude-opus-4-8目安）
+ADVICE_PRICE_PER_M_OUTPUT = 25.0   # USD / 1M output tokens
+ADVICE_PRICE_PER_SEARCH   = 0.01   # USD / Web検索1回（$10/1000回）
+DASHBOARD_PW = os.environ.get('DASHBOARD_PW', '')  # advice_store.enc の暗号化に使用（公開リポジトリにメール内容を平文で置かない）
+
 ACCOUNT_DISPLAY_TO = {
     'kanesaka_activia': 'kanesaka@activia.co.jp',
     'kanesaka_agni': 'kanesaka.agni@gmail.com',
@@ -482,8 +490,9 @@ def _hide_categories_for(mail, account_rules):
     return set()
 
 
-def log_cost(usage):
-    """トークン数と概算コストのみを記録（メール内容は含めない）"""
+def log_cost(usage, model=None, in_rate=None, out_rate=None, extra_cost=0.0):
+    """トークン数と概算コストのみを記録（メール内容は含めない）。
+    model/単価を指定しない場合は一括仕分け（haiku）の設定を使う。"""
     log_path = os.path.join(WORKSPACE, 'api_usage_log.json')
     log = []
     if os.path.exists(log_path):
@@ -495,11 +504,13 @@ def log_cost(usage):
 
     in_tok = usage.get('input_tokens', 0)
     out_tok = usage.get('output_tokens', 0)
-    cost = (in_tok / 1_000_000 * PRICE_PER_M_INPUT) + (out_tok / 1_000_000 * PRICE_PER_M_OUTPUT)
+    in_rate = PRICE_PER_M_INPUT if in_rate is None else in_rate
+    out_rate = PRICE_PER_M_OUTPUT if out_rate is None else out_rate
+    cost = (in_tok / 1_000_000 * in_rate) + (out_tok / 1_000_000 * out_rate) + extra_cost
 
     log.append({
         'timestamp': datetime.now(timezone.utc).isoformat(),
-        'model': ANTHROPIC_MODEL,
+        'model': model or ANTHROPIC_MODEL,
         'input_tokens': in_tok,
         'output_tokens': out_tok,
         'estimated_cost_usd': round(cost, 5),
@@ -510,6 +521,159 @@ def log_cost(usage):
 
     total = sum(x['estimated_cost_usd'] for x in log)
     print(f'今回のAPI利用: input={in_tok} output={out_tok} 概算${cost:.5f} ｜ 累計(直近500件)概算${total:.4f}')
+
+
+# ── AIアドバイス（🤖ボタン → ci_trigger/advice_requests.json 経由の依頼） ─────
+# ダッシュボードの🤖ボタンが依頼をコミット→push起動の本ワークフローで生成→
+# 結果はDASHBOARD_PWで暗号化した advice_store.enc に保存（公開リポジトリに平文を置かない）→
+# rebuild_all.py が復号して該当メールの下に表示する。
+ADVICE_REQ_FILE   = os.path.join(WORKSPACE, 'ci_trigger', 'advice_requests.json')
+ADVICE_STORE_FILE = os.path.join(WORKSPACE, 'advice_store.enc')
+
+
+def _advice_fernet(salt):
+    import base64
+    from cryptography.fernet import Fernet
+    from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+    from cryptography.hazmat.primitives import hashes
+    kdf = PBKDF2HMAC(algorithm=hashes.SHA256(), length=32, salt=salt, iterations=480000)
+    return Fernet(base64.urlsafe_b64encode(kdf.derive(DASHBOARD_PW.encode())))
+
+
+def load_advice_store():
+    import base64
+    if not (DASHBOARD_PW and os.path.exists(ADVICE_STORE_FILE)):
+        return {}
+    try:
+        with open(ADVICE_STORE_FILE, encoding='utf-8') as f:
+            raw = json.load(f)
+        salt = base64.b64decode(raw['salt'])
+        return json.loads(_advice_fernet(salt).decrypt(raw['token'].encode()))
+    except Exception as e:
+        print(f'advice_store読み込み失敗（新規作成します）: {e}')
+        return {}
+
+
+def save_advice_store(store):
+    import base64
+    salt = os.urandom(16)
+    token = _advice_fernet(salt).encrypt(json.dumps(store, ensure_ascii=False).encode())
+    with open(ADVICE_STORE_FILE, 'w', encoding='utf-8') as f:
+        json.dump({'salt': base64.b64encode(salt).decode(), 'token': token.decode()}, f)
+
+
+def _call_anthropic_advice(mail):
+    """1通のメールについて、Web検索も使ってスパム/本物の判定と対応アドバイスを生成する。
+    サーバー側Web検索ツールがpause_turnで中断した場合は続きを再送する。"""
+    prompt = f"""以下のメールについて、受信者（金坂）向けに安全性の判定とアドバイスを作成してください。
+
+【最重要の判定事項】
+① スパム・フィッシング詐欺の可能性（高・中・低）
+② 本物（正規の送信元からの正当なメール）かどうか
+
+必要に応じてWeb検索を使い、送信元ドメインが実在する企業・サービスの正規ドメインか、
+同様の詐欺・フィッシング事例が報告されていないかを確認してください。
+
+出力は以下のJSONオブジェクトのみ（説明文・コードブロック記法は不要）:
+{{"spam_risk": "高"または"中"または"低", "genuine": "本物の可能性が高い"または"判断つかず"または"偽物・詐欺の疑い", "summary": "結論を1文（40字程度）", "advice": "推奨する対応（80字程度・具体的に）", "evidence": "判定根拠（Web検索で確認した事実を含む・80字程度）"}}
+
+【対象メール】
+差出人情報: {mail.get('from_info', '')}
+件名: {mail.get('title', '')}
+要約: {mail.get('sub', '')}
+本文冒頭:
+{mail.get('detail', '')}
+"""
+    messages = [{'role': 'user', 'content': prompt}]
+    total = {'input_tokens': 0, 'output_tokens': 0, 'web_searches': 0}
+    result = {}
+    for _ in range(4):
+        body = json.dumps({
+            'model': ADVICE_MODEL,
+            'max_tokens': 3000,
+            'tools': [{'type': 'web_search_20260209', 'name': 'web_search', 'max_uses': 4}],
+            'messages': messages,
+        }).encode('utf-8')
+        req = urllib.request.Request(
+            'https://api.anthropic.com/v1/messages', data=body,
+            headers={'x-api-key': ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01',
+                     'content-type': 'application/json'},
+            method='POST')
+        try:
+            with urllib.request.urlopen(req, timeout=300) as r:
+                result = json.loads(r.read())
+        except urllib.error.HTTPError as e:
+            print(f'Anthropic API error {e.code}: {e.read().decode("utf-8", errors="replace")}')
+            raise
+        usage = result.get('usage', {})
+        total['input_tokens'] += usage.get('input_tokens', 0)
+        total['output_tokens'] += usage.get('output_tokens', 0)
+        total['web_searches'] += usage.get('server_tool_use', {}).get('web_search_requests', 0)
+        if result.get('stop_reason') == 'pause_turn':
+            # サーバー側ツールの反復上限で中断→userプロンプト＋途中までのassistant応答を再送すると続きから再開される
+            messages = [messages[0], {'role': 'assistant', 'content': result.get('content', [])}]
+            continue
+        break
+    text = ''.join(b.get('text', '') for b in result.get('content', []) if b.get('type') == 'text')
+    return text, total
+
+
+def process_advice_requests(unified_mails):
+    """ダッシュボードの🤖ボタンで登録されたアドバイス依頼を処理する。"""
+    if not os.path.exists(ADVICE_REQ_FILE):
+        return
+    try:
+        with open(ADVICE_REQ_FILE, encoding='utf-8') as f:
+            reqs = json.load(f).get('requests', [])
+    except Exception as e:
+        print(f'アドバイス依頼ファイル読み込みエラー: {e}')
+        reqs = []
+    if not reqs:
+        return
+    if not DASHBOARD_PW:
+        print('DASHBOARD_PW未設定のためAIアドバイスをスキップ（依頼は保留のまま残します）')
+        return
+
+    by_id = {m['id']: m for m in unified_mails}
+    store = load_advice_store()
+    now_str = datetime.now(JST).strftime('%m/%d %H:%M')
+    ok = ng = 0
+    for r in reqs[:10]:  # 1回の実行で最大10件（コスト暴走ガード）
+        mid = r.get('id', '')
+        mail = by_id.get(mid)
+        if mail is None:
+            store[mid] = {'error': 'メールが見つかりません（完了・非表示化された可能性）', 'checked': now_str}
+            ng += 1
+            continue
+        try:
+            text, usage = _call_anthropic_advice(mail)
+            m2 = re.search(r'\{.*\}', text, re.DOTALL)
+            data = json.loads(m2.group(0)) if m2 else {}
+            store[mid] = {
+                'spam_risk': str(data.get('spam_risk', '不明'))[:10],
+                'genuine': str(data.get('genuine', '判定できず'))[:30],
+                'summary': str(data.get('summary', text[:80]))[:140],
+                'advice': str(data.get('advice', ''))[:220],
+                'evidence': str(data.get('evidence', ''))[:220],
+                'checked': now_str,
+            }
+            log_cost(usage, model=ADVICE_MODEL,
+                     in_rate=ADVICE_PRICE_PER_M_INPUT, out_rate=ADVICE_PRICE_PER_M_OUTPUT,
+                     extra_cost=usage.get('web_searches', 0) * ADVICE_PRICE_PER_SEARCH)
+            print(f'🤖 アドバイス生成OK: {mid}（検索{usage.get("web_searches",0)}回）')
+            ok += 1
+        except Exception as e:
+            print(f'🤖 アドバイス生成失敗 {mid}: {e}')
+            store[mid] = {'error': f'生成に失敗しました（{type(e).__name__}）。もう一度🤖を押すと再試行します', 'checked': now_str}
+            ng += 1
+
+    # 直近100件のみ保持（無限増殖を防ぐ）
+    if len(store) > 100:
+        store = dict(sorted(store.items(), key=lambda kv: kv[1].get('checked', ''), reverse=True)[:100])
+    save_advice_store(store)
+    with open(ADVICE_REQ_FILE, 'w', encoding='utf-8') as f:
+        json.dump({'requests': []}, f, ensure_ascii=False, indent=2)
+    print(f'🤖 AIアドバイス処理完了: 成功{ok}件 / 失敗{ng}件（依頼ファイルをクリア）')
 
 
 def judge_account(account_key, account_label, mails, rules):
@@ -608,6 +772,9 @@ def main():
 
     n_action = sum(1 for m in unified_mails if m['category'] == 'action')
     print(f'✅ 統合メール判定完了：計{len(unified_mails)}件（うち要対応{n_action}件）')
+
+    # 4) 🤖ボタンで依頼されたAIアドバイス（Web検索つき・opus）を生成
+    process_advice_requests(unified_mails)
 
     # rebuild_all.pyがkpi_note/training_count読み込みのために存在を前提とするため、
     # 空のスタブとして書き出す（urgent_mailsはmail_unified.jsonに統合されたため含めない）
