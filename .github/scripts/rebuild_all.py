@@ -659,9 +659,11 @@ DASHBOARD_TEMPLATE = """<!DOCTYPE html>
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: 'Hiragino Sans','Meiryo',sans-serif; background: var(--bg); color: var(--text); font-size: 14px; }
-  header { background: #2c3e50; color: white; padding: 14px 20px; display: flex; justify-content: space-between; align-items: center; }
-  header h1 { font-size: 17px; font-weight: bold; }
-  header .hdr-right { display: flex; align-items: center; gap: 16px; }
+  header { background: #2c3e50; color: white; padding: 14px 20px; display: flex; flex-direction: column; gap: 10px; }
+  header h1 { font-size: 16px; font-weight: bold; white-space: normal; word-break: break-word; }
+  .header-buttons { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  .btn-header { padding: 8px 14px; font-size: 12px; font-weight: bold; background: #34495e; color: white; border: 1px solid #5d6d7b; border-radius: 6px; cursor: pointer; transition: background 0.2s; text-decoration: none; display: inline-block; }
+  .btn-header:hover { background: #455a64; }
   header .updated { font-size: 11px; color: #b2bec3; }
   header .rebuild-btn { font-size: 12px; background: #3b82f6; color: white; border: none; border-radius: 6px; padding: 5px 12px; cursor: pointer; text-decoration: none; display: inline-block; }
   header .rebuild-btn:hover { background: #2563eb; }
@@ -682,7 +684,7 @@ DASHBOARD_TEMPLATE = """<!DOCTYPE html>
   .archive-btn.btn-triangle.pressed { background: #d97706; color: white; border-color: #d97706; font-weight: bold; }
   .mail-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 6px; margin-bottom: 3px; cursor: pointer; }
   .mail-header:hover .mail-title { color: var(--blue); }
-  .mail-item { padding: 8px 10px; border-radius: 6px; margin-bottom: 6px; border-left: 4px solid; }
+  .mail-item { padding: 8px 10px; border-radius: 6px; margin-bottom: 2px; border-left: 4px solid; position: relative; }
   .mail-urgent { background: #ffeaa7; border-color: #e17055; }
   .mail-info   { background: #e8f4fd; border-color: var(--blue); }
   .mail-unclear { background: #f3e8ff; border-color: #a78bfa; }
@@ -727,6 +729,8 @@ DASHBOARD_TEMPLATE = """<!DOCTYPE html>
   .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; }
   .full   { grid-column: 1 / -1; }
   .card   { background: var(--card); border-radius: 10px; padding: 14px 16px; box-shadow: 0 1px 4px rgba(0,0,0,0.08); }
+  .routine-cards { display: flex; gap: 20px; flex-wrap: wrap; }
+  .routine-cards .routine-col { flex: 1; min-width: 220px; }
   .card-title { font-size: 12px; font-weight: bold; color: var(--sub); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 10px; display: flex; align-items: center; gap: 6px; }
   .badge { display: inline-block; padding: 2px 7px; border-radius: 10px; font-size: 11px; font-weight: bold; }
   .badge-red    { background: #ffeaea; color: var(--red); }
@@ -812,7 +816,7 @@ DASHBOARD_TEMPLATE = """<!DOCTYPE html>
   .rt-del-btn { background: transparent; border: none; color: #ccc; cursor: pointer; font-size: 13px; padding: 0 2px; line-height:1; }
   .rt-del-btn:hover { color: var(--red); }
   @media (max-width: 900px) { .first-view { grid-template-columns: 1fr; } }
-  @media (max-width: 700px) { .grid { grid-template-columns: 1fr; } .grid-3 { grid-template-columns: 1fr; } }
+  @media (max-width: 700px) { .grid { grid-template-columns: 1fr; } .grid-3 { grid-template-columns: 1fr; } .routine-cards { flex-direction: column; } }
 </style>
 </head>
 <body>
@@ -1118,13 +1122,12 @@ function fallbackCopy(text,done){
 
 <header>
   <h1>📋 金坂 タスク管理ダッシュボード</h1>
-  <div class="hdr-right">
-    <button class="rebuild-btn" id="reflect-mail-btn" onclick="reflectMail()" title="GitHub Actionsでメール反映を実行">🔄 メール反映</button>
-    <span id="api-cost-note" style="font-size:11px;color:var(--sub);"></span>
-    <a class="rebuild-btn" href="kanesaka-task-history.html" title="完了したタスクの履歴">📋 完了履歴</a>
-    <a class="rebuild-btn" href="kanesaka-mail-rules.html" title="送信元ルール・AI判断ロジックを確認">🔍 判定ルール</a>
-    <div class="updated">最終更新：###UPDATED### ／ Claude</div>
+  <div class="header-buttons">
+    <button class="btn-header" id="reflect-mail-btn" onclick="reflectMail()" title="GitHub Actionsでメール反映を実行">🔄 メール反映</button>
+    <a class="btn-header" href="kanesaka-task-history.html" title="完了したタスクの履歴">📋 完了履歴</a>
+    <a class="btn-header" href="kanesaka-mail-rules.html" title="送信元ルール・AI判断ロジックを確認">🔍 判定ルール</a>
   </div>
+  <div class="updated">最終更新：###UPDATED### ／ Claude　<span id="api-cost-note" style="font-size:11px;color:var(--sub);"></span></div>
 </header>
 
 <div class="container">
@@ -1333,8 +1336,8 @@ function fallbackCopy(text,done){
 
   <!-- ═══ ルーチン業務 ═══ -->
   <div class="section-head">🔄 ルーチン業務</div>
-  <div class="grid">
-    <div class="card">
+  <div class="card routine-cards">
+    <div class="routine-col">
       <div class="card-title">毎月5日前後</div>
       <div class="routine-item" id="rd-shakaihoken"><div class="routine-name">社会保険料データDL（e-Gov電子申請・前月分）</div><div class="routine-freq">毎月5日前後<button class="rt-del-btn" onclick="deleteBuiltinRoutine('rd-shakaihoken')" title="削除">✕</button></div></div>
       <div class="routine-item" id="rd-zip"><div class="routine-name">ZIP精算（前月分）</div><div class="routine-freq">毎月5〜7日<button class="rt-del-btn" onclick="deleteBuiltinRoutine('rd-zip')" title="削除">✕</button></div></div>
@@ -1344,7 +1347,7 @@ function fallbackCopy(text,done){
       <div class="routine-item" id="rd-juminzei"><div class="routine-name">住民税支払い（前月分）</div><div class="routine-freq">毎月5日前後<button class="rt-del-btn" onclick="deleteBuiltinRoutine('rd-juminzei')" title="削除">✕</button></div></div>
       <div class="routine-item" id="rd-yukyu"><div class="routine-name">有給管理</div><div class="routine-freq">毎月5日前後<button class="rt-del-btn" onclick="deleteBuiltinRoutine('rd-yukyu')" title="削除">✕</button></div></div>
     </div>
-    <div class="card">
+    <div class="routine-col">
       <div class="card-title">毎月10日 / 毎週 / その他</div>
       <div class="routine-item" id="rd-zeikin"><div class="routine-name">税金支払い（所得・住民）</div><div class="routine-freq">毎月9日頃<button class="rt-del-btn" onclick="deleteBuiltinRoutine('rd-zeikin')" title="削除">✕</button></div></div>
       <div class="routine-item" id="rd-credit"><div class="routine-name">クレジット精算・CB/AMEXダウンロード</div><div class="routine-freq">毎月10日（1,4,7,10月のみ）<button class="rt-del-btn" onclick="deleteBuiltinRoutine('rd-credit')" title="削除">✕</button></div></div>
