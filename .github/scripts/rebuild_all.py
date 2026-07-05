@@ -257,8 +257,28 @@ def update_kpi_history(metric_lists):
             if key not in ent['keys']:
                 ent['keys'].append(key)
                 ent['count'] = len(ent['keys'])
+            # メール内容も履歴に残す（取得窓から消えた後もKPIポップアップで見られるように）
+            ent.setdefault('mails', {})[key] = {
+                'subject': it.get('subject', '')[:200], 'date': it.get('date', '')[:40],
+                'from': it.get('from', '')[:120], 'body': it.get('body', '')[:800],
+            }
     _enc_save(KPI_HISTORY_FILE, hist)
     return hist
+
+
+def merge_with_history(items, hist_month, metric):
+    """取得窓に今あるメール＋履歴に保存済みのメールを重複なく合成（KPIポップアップ表示用）。"""
+    import hashlib as _h
+    def k(it):
+        return _h.sha1((it.get('subject', '') + '|' + it.get('date', '') + '|' + it.get('from', '')).encode('utf-8')).hexdigest()[:16]
+    seen, out = set(), []
+    for it in items:
+        seen.add(k(it))
+        out.append(it)
+    for key, m in (((hist_month or {}).get(metric, {}) or {}).get('mails', {}) or {}).items():
+        if key not in seen:
+            out.append(m)
+    return out
 
 
 def generate_past_kpi_popup(hist, ym_now):
@@ -2208,7 +2228,10 @@ kpi_hist = update_kpi_history({'trial': trials, 'setsumeikai': setsumeikai_list,
 _ym_now = f'{year:04d}-{month:02d}'
 _cur_hist = kpi_hist.get('months', {}).get(_ym_now, {})
 kpi_html         = generate_kpi_section(
-    trials, shiryo_list, setsumeikai_list, n_training,
+    merge_with_history(trials, _cur_hist, 'trial'),
+    merge_with_history(shiryo_list, _cur_hist, 'shiryo'),
+    merge_with_history(setsumeikai_list, _cur_hist, 'setsumeikai'),
+    n_training,
     kpi_note, today, month,
     hist_counts={k: v.get('count', 0) for k, v in _cur_hist.items()}
 )
