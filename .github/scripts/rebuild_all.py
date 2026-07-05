@@ -888,8 +888,8 @@ function _sd(list){localStorage.setItem(DONE_KEY,JSON.stringify(list));}
 const GH_TOKEN='###GITHUB_TOKEN###';
 const GH_REPO='kanesaka849/secure-note-page';
 const GH_DONE='done_state.json';
-async function ghGet(){try{const r=await fetch(`https://api.github.com/repos/${GH_REPO}/contents/${GH_DONE}`,{headers:{'Authorization':`token ${GH_TOKEN}`,'Accept':'application/vnd.github.v3+json'}});if(!r.ok)return{list:[],sha:null};const d=await r.json();return{list:JSON.parse(decodeURIComponent(escape(atob(d.content.replace(/\\n/g,''))))),sha:d.sha};}catch(e){return{list:[],sha:null};}}
-async function ghPut(list,sha){try{const b=btoa(unescape(encodeURIComponent(JSON.stringify(list))));const body={message:'sync',content:b};if(sha)body.sha=sha;await fetch(`https://api.github.com/repos/${GH_REPO}/contents/${GH_DONE}`,{method:'PUT',headers:{'Authorization':`token ${GH_TOKEN}`,'Content-Type':'application/json','Accept':'application/vnd.github.v3+json'},body:JSON.stringify(body)});}catch(e){}}
+async function ghGet(){try{const r=await fetch(`https://api.github.com/repos/${GH_REPO}/contents/${GH_DONE}`,{headers:{'Authorization':`token ${GH_TOKEN}`,'Accept':'application/vnd.github.v3+json'}});if(!r.ok)return{list:[],sha:null};const d=await r.json();const l=JSON.parse(decodeURIComponent(escape(atob(d.content.replace(/\\n/g,'')))));return{list:Array.isArray(l)?l:[],sha:d.sha};}catch(e){return{list:[],sha:null};}}
+async function ghPut(list,sha){for(let i=0;i<3;i++){try{const b=btoa(unescape(encodeURIComponent(JSON.stringify(list))));const body={message:'sync',content:b};if(sha)body.sha=sha;const r=await fetch(`https://api.github.com/repos/${GH_REPO}/contents/${GH_DONE}`,{method:'PUT',headers:{'Authorization':`token ${GH_TOKEN}`,'Content-Type':'application/json','Accept':'application/vnd.github.v3+json'},body:JSON.stringify(body)});if(r.status===200||r.status===201)return;}catch(e){}const g=await ghGet();list=mergeDone(list,g.list);sha=g.sha;_sd(list);}}
 async function reflectMail(){
   const btn=document.getElementById('reflect-mail-btn');
   if(!GH_TOKEN){alert('GitHubトークンが設定されていません');return;}
@@ -921,7 +921,23 @@ async function loadApiCost(){
 // （AIの自動学習と同じ場所に人間の判断も記録し、次回の「メール反映」にも一貫して反映される）
 const GH_SENDER_RULES='sender_rules.json';
 async function ghGetSenderRules(){try{const r=await fetch(`https://api.github.com/repos/${GH_REPO}/contents/${GH_SENDER_RULES}`,{headers:{'Authorization':`token ${GH_TOKEN}`,'Accept':'application/vnd.github.v3+json'}});if(!r.ok)return{rules:{},sha:null};const d=await r.json();return{rules:JSON.parse(decodeURIComponent(escape(atob(d.content.replace(/\\n/g,''))))),sha:d.sha};}catch(e){return{rules:{},sha:null};}}
-async function ghPutSenderRules(rules,sha){try{const b=btoa(unescape(encodeURIComponent(JSON.stringify(rules))));const body={message:'update sender rules (manual)',content:b};if(sha)body.sha=sha;await fetch(`https://api.github.com/repos/${GH_REPO}/contents/${GH_SENDER_RULES}`,{method:'PUT',headers:{'Authorization':`token ${GH_TOKEN}`,'Content-Type':'application/json','Accept':'application/vnd.github.v3+json'},body:JSON.stringify(body)});}catch(e){}}
+async function ghPutSenderRules(rules,sha){try{const b=btoa(unescape(encodeURIComponent(JSON.stringify(rules))));const body={message:'update sender rules (manual)',content:b};if(sha)body.sha=sha;const r=await fetch(`https://api.github.com/repos/${GH_REPO}/contents/${GH_SENDER_RULES}`,{method:'PUT',headers:{'Authorization':`token ${GH_TOKEN}`,'Content-Type':'application/json','Accept':'application/vnd.github.v3+json'},body:JSON.stringify(body)});return r.status===200||r.status===201;}catch(e){return false;}}
+// 送信元ルールの更新は直列キュー＋リトライで行う（✕/△の連打で古いshaのPUTが409になり
+// ルールが黙って消える競合を防ぐ。失敗が続いた場合のみ警告を出す）
+let _srQueue=Promise.resolve();
+function updateSenderRules(mutate){_srQueue=_srQueue.then(function(){return _updateSenderRulesOnce(mutate,3);});return _srQueue;}
+async function _updateSenderRulesOnce(mutate,tries){
+  for(let i=0;i<tries;i++){
+    const r=await ghGetSenderRules();
+    const rules=r.rules||{};
+    mutate(rules);
+    const ok=await ghPutSenderRules(rules,r.sha);
+    if(ok)return true;
+    await new Promise(function(res){setTimeout(res,700);});
+  }
+  alert('送信元ルールの保存に失敗しました（通信エラー）。時間をおいてもう一度お試しください');
+  return false;
+}
 // 🤖AIアドバイス依頼：ci_trigger/advice_requests.jsonに依頼を追記コミット→push起動のreflect-mailが
 // Web検索つきAI判定（スパムか本物か・推奨対応）を生成し、次回ビルドで該当メールの下に表示される
 const GH_ADVICE_REQ='ci_trigger/advice_requests.json';
@@ -986,8 +1002,17 @@ function _subCat(list){localStorage.setItem('ks_unified_hidden_cat_v1',JSON.stri
 function _entryKey(e){return typeof e==='string'?e:e.key;}
 function _entryLabel(e){return typeof e==='string'?'':(e.label||'');}
 function applyUnifiedBlocklist(){
-  // 表示中アイテムの非表示化はarchiveItem()/done_state（12時間グレー表示）に一本化。
-  // ここでは「今後表示しない送信元」管理UIの再描画のみ行う。
+  // ✕/△済み送信元のメールは（この端末では）リロード後も即座に画面から隠す。
+  // sender_rules反映後の次回ビルドで完全に除外されるまでの橋渡し
+  // （以前は12時間グレー表示のみ→「更新すると復活して見える」問題があった）。
+  const keys=_gub().map(_entryKey),catKeys=_gubCat().map(_entryKey);
+  if(keys.length||catKeys.length){
+    document.querySelectorAll('.mail-item').forEach(function(el){
+      const a=el.getAttribute('data-account'),d=el.getAttribute('data-domain'),c=el.getAttribute('data-category');
+      if(!d)return;
+      if(keys.indexOf(a+'|'+d)>=0||catKeys.indexOf(a+'|'+d+'|'+c)>=0)el.style.display='none';
+    });
+  }
   renderUnifiedBlocklistUI();
 }
 function toggleUnifiedBlocklistUI(){
@@ -1007,11 +1032,8 @@ function blockUnifiedSender(account,domain,category,label){
   const key=account+'|'+domain;
   const local=_gub();if(!local.find(function(e){return _entryKey(e)===key;})){local.push({key:key,label:label||''});_sub(local);}
   _archiveMatching('.mail-item[data-account="'+account+'"][data-domain="'+domain+'"]','block',{account:account,domain:domain});
-  renderUnifiedBlocklistUI();
-  if(GH_TOKEN){ghGetSenderRules().then(function(r){
-    const rules=r.rules;rules[account]=rules[account]||{};rules[account][domain]='hide';
-    ghPutSenderRules(rules,r.sha);
-  });}
+  applyUnifiedBlocklist();
+  if(GH_TOKEN){updateSenderRules(function(rules){rules[account]=rules[account]||{};rules[account][domain]='hide';});}
 }
 function blockCategoryUnifiedSender(account,domain,category,label){
   if(!domain||!category)return;
@@ -1021,36 +1043,33 @@ function blockCategoryUnifiedSender(account,domain,category,label){
   const key=account+'|'+domain+'|'+category;
   const local=_gubCat();if(!local.find(function(e){return _entryKey(e)===key;})){local.push({key:key,label:label||''});_subCat(local);}
   _archiveMatching('.mail-item[data-account="'+account+'"][data-domain="'+domain+'"][data-category="'+category+'"]','blockCategory',{account:account,domain:domain,category:category});
-  renderUnifiedBlocklistUI();
-  if(GH_TOKEN){ghGetSenderRules().then(function(r){
-    const rules=r.rules;rules[account]=rules[account]||{};
+  applyUnifiedBlocklist();
+  if(GH_TOKEN){updateSenderRules(function(rules){
+    rules[account]=rules[account]||{};
     const cur=rules[account][domain];
     const cats=(cur&&typeof cur==='object'&&Array.isArray(cur.hide_categories))?cur.hide_categories.slice():[];
     if(!cats.includes(category))cats.push(category);
     rules[account][domain]={hide_categories:cats};
-    ghPutSenderRules(rules,r.sha);
   });}
 }
 function unblockUnifiedSender(account,domain){
   const key=account+'|'+domain;
   const local=_gub().filter(function(e){return _entryKey(e)!==key;});_sub(local);
+  document.querySelectorAll('.mail-item[data-account="'+account+'"][data-domain="'+domain+'"]').forEach(function(el){el.style.display='';});
   renderUnifiedBlocklistUI();
-  if(GH_TOKEN){ghGetSenderRules().then(function(r){
-    const rules=r.rules;if(rules[account])delete rules[account][domain];
-    ghPutSenderRules(rules,r.sha);
-  });}
+  if(GH_TOKEN){updateSenderRules(function(rules){if(rules[account])delete rules[account][domain];});}
 }
 function unblockCategoryUnifiedSender(account,domain,category){
   const key=account+'|'+domain+'|'+category;
   const local=_gubCat().filter(function(e){return _entryKey(e)!==key;});_subCat(local);
+  document.querySelectorAll('.mail-item[data-account="'+account+'"][data-domain="'+domain+'"][data-category="'+category+'"]').forEach(function(el){el.style.display='';});
   renderUnifiedBlocklistUI();
-  if(GH_TOKEN){ghGetSenderRules().then(function(r){
-    const rules=r.rules;const cur=rules[account]&&rules[account][domain];
+  if(GH_TOKEN){updateSenderRules(function(rules){
+    const cur=rules[account]&&rules[account][domain];
     if(cur&&typeof cur==='object'&&Array.isArray(cur.hide_categories)){
       cur.hide_categories=cur.hide_categories.filter(function(c){return c!==category;});
       if(!cur.hide_categories.length)delete rules[account][domain];
     }
-    ghPutSenderRules(rules,r.sha);
   });}
 }
 function renderUnifiedBlocklistUI(){
@@ -1633,8 +1652,8 @@ function _gd(){try{return JSON.parse(localStorage.getItem(DONE_KEY)||'[]');}catc
 function _sd(list){localStorage.setItem(DONE_KEY,JSON.stringify(list));}
 function _esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 function fmtDate(ts){var d=new Date(ts);return(d.getMonth()+1)+'/'+d.getDate()+' '+d.getHours()+':'+String(d.getMinutes()).padStart(2,'0');}
-async function ghGet(){try{const r=await fetch('https://api.github.com/repos/'+GH_REPO+'/contents/'+GH_DONE,{headers:{'Authorization':'token '+GH_TOKEN,'Accept':'application/vnd.github.v3+json'}});if(!r.ok)return{list:[],sha:null};const d=await r.json();return{list:JSON.parse(decodeURIComponent(escape(atob(d.content.replace(/\\n/g,''))))),sha:d.sha};}catch(e){return{list:[],sha:null};}}
-async function ghPut(list,sha){try{const b=btoa(unescape(encodeURIComponent(JSON.stringify(list))));const body={message:'sync',content:b};if(sha)body.sha=sha;await fetch('https://api.github.com/repos/'+GH_REPO+'/contents/'+GH_DONE,{method:'PUT',headers:{'Authorization':'token '+GH_TOKEN,'Content-Type':'application/json','Accept':'application/vnd.github.v3+json'},body:JSON.stringify(body)});}catch(e){}}
+async function ghGet(){try{const r=await fetch('https://api.github.com/repos/'+GH_REPO+'/contents/'+GH_DONE,{headers:{'Authorization':'token '+GH_TOKEN,'Accept':'application/vnd.github.v3+json'}});if(!r.ok)return{list:[],sha:null};const d=await r.json();const l=JSON.parse(decodeURIComponent(escape(atob(d.content.replace(/\\n/g,'')))));return{list:Array.isArray(l)?l:[],sha:d.sha};}catch(e){return{list:[],sha:null};}}
+async function ghPut(list,sha){for(let i=0;i<3;i++){try{const b=btoa(unescape(encodeURIComponent(JSON.stringify(list))));const body={message:'sync',content:b};if(sha)body.sha=sha;const r=await fetch('https://api.github.com/repos/'+GH_REPO+'/contents/'+GH_DONE,{method:'PUT',headers:{'Authorization':'token '+GH_TOKEN,'Content-Type':'application/json','Accept':'application/vnd.github.v3+json'},body:JSON.stringify(body)});if(r.status===200||r.status===201)return;}catch(e){}const g=await ghGet();list=mergeDone(list,g.list);sha=g.sha;_sd(list);}}
 function mergeDone(a,b){const m={};[...a,...b].forEach(function(i){const c=m[i.id];if(!c||i.completedAt>c.completedAt){m[i.id]=Object.assign({},i);if(c&&c.cleaned)m[i.id].cleaned=true;}else if(i.cleaned){c.cleaned=true;}});return Object.values(m);}
 var _ghSha=null;
 function render(list){
