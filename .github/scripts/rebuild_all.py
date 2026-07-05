@@ -548,7 +548,7 @@ def generate_unified_mail_section(mails, filter_categories=None):
         adv = ADVICE_STORE.get(mid)
         advice_btn = ('' if adv and not adv.get('error') else
                       f'<button class="archive-btn btn-advice" title="AIがWeb調査してスパムか本物か・どう対応すべきかをアドバイスします（依頼後、次のメール反映時に生成）" '
-                      f'onclick="event.stopPropagation();requestAdvice(\'{mid}\',this)">🤖</button>')
+                      f'onclick="event.stopPropagation();requestAdvice(\'{mid}\',this)">🤖AI</button>')
         if adv:
             if adv.get('error'):
                 advice_html = (f'<div class="mail-advice">🤖 AIアドバイス（{he(adv.get("checked",""))}）：'
@@ -564,13 +564,15 @@ def generate_unified_mail_section(mails, filter_categories=None):
         copy_text = he_attr(f"{m.get('from_info','')}\n\n{m.get('detail','')}")
         parts.append(f"""        <div class="mail-item {cls}" id="{mid}" data-domain="{domain}" data-account="{account}" data-category="{category}">
           <div class="mail-header" onclick="toggleDetail('{mid}')">
-            <div class="mail-title"><span class="acct-badge {acct_cls}">{acct_label}</span> {he(m.get('title',''))}</div>
+            <div class="mail-btns">
             {block_btn}
             {block_cat_btn}
             {advice_btn}
             {add_task_btn}
             {hide_btn}
             <button class="archive-btn btn-check" title="この1件だけ完了・非表示にする（送信元は今後も表示されます）" onclick="event.stopPropagation();archiveItem('{mid}')">✓</button>
+            </div>
+            <div class="mail-title"><span class="acct-badge {acct_cls}">{acct_label}</span> {he(m.get('title',''))}</div>
           </div>
           <div class="mail-to">{meta}</div>
           <div class="mail-sub">{he(m.get('sub',''))}</div>
@@ -737,7 +739,8 @@ DASHBOARD_TEMPLATE = """<!DOCTYPE html>
   .archive-btn.btn-advice:hover { background: #6366f1; color: white; border-color: #6366f1; }
   .mail-advice { font-size: 11px; line-height: 1.8; margin-top: 6px; padding: 8px 10px; border-radius: 6px; background: #eef2ff; border: 1px solid #c7d2fe; color: #3730a3; }
   .mail-advice .advice-evidence { color: #6366f1; font-size: 10px; }
-  .mail-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 6px; margin-bottom: 3px; cursor: pointer; }
+  .mail-header { display: flex; flex-direction: column; align-items: stretch; gap: 3px; margin-bottom: 3px; cursor: pointer; }
+  .mail-btns { display: flex; justify-content: flex-end; gap: 6px; flex-wrap: wrap; }
   .mail-header:hover .mail-title { color: var(--blue); }
   .mail-item { padding: 8px 10px; border-radius: 6px; margin-bottom: 2px; border-left: 4px solid; position: relative; }
   .mail-urgent { background: #ffeaa7; border-color: #e17055; }
