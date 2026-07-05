@@ -510,6 +510,8 @@ def generate_unified_mail_section(mails, filter_categories=None):
                           if domain else '')
         add_task_btn = (f'<button class="archive-btn btn-add-task" title="タスク一覧に追加" '
                          f'onclick="event.stopPropagation();addMailToTaskList(\'{mid}\',\'{title_js}\',this)">📋+</button>')
+        hide_btn = (f'<button class="archive-btn btn-hide" title="この1通だけ非表示にする（AI判定・学習には影響しません）" '
+                     f'onclick="event.stopPropagation();justHideMail(\'{mid}\')">隠す</button>')
         recommend = he(m.get('recommend', ''))
         recommend_html = f'<div class="mail-recommend">💡 {recommend}</div>' if recommend else ''
         copy_text = he_attr(f"{m.get('from_info','')}\n\n{m.get('detail','')}")
@@ -519,6 +521,7 @@ def generate_unified_mail_section(mails, filter_categories=None):
             {block_btn}
             {block_cat_btn}
             {add_task_btn}
+            {hide_btn}
             <button class="archive-btn btn-check" title="この1件だけ完了・非表示にする（送信元は今後も表示されます）" onclick="event.stopPropagation();archiveItem('{mid}')">✓</button>
           </div>
           <div class="mail-to">{meta}</div>
@@ -719,6 +722,7 @@ DASHBOARD_TEMPLATE = """<!DOCTYPE html>
   .task-card.extra.urgency-soon   { border-left-color: var(--orange); background: #fff8f0; }
   .btn-add-task { color: var(--teal); border-color: var(--teal); }
   .btn-add-task.pressed { background: var(--teal); color: white; }
+  .btn-hide { color: #6b7280; border-color: #9ca3af; font-size: 10px; }
   .task-title { font-size: 13px; font-weight: bold; margin-bottom: 4px; display: flex; align-items: center; gap: 6px; transition: color 0.15s; }
   .task-next  { font-size: 11px; color: var(--sub); line-height: 1.4; margin-top: 4px; }
   .task-next strong { color: var(--orange); }
@@ -815,7 +819,7 @@ DASHBOARD_TEMPLATE = """<!DOCTYPE html>
   .rt-cancel-btn { background: transparent; color: var(--sub); border: 1px solid var(--border); border-radius: 4px; padding: 5px 10px; font-size: 12px; cursor: pointer; }
   .rt-del-btn { background: transparent; border: none; color: #ccc; cursor: pointer; font-size: 13px; padding: 0 2px; line-height:1; }
   .rt-del-btn:hover { color: var(--red); }
-  @media (max-width: 900px) { .first-view { grid-template-columns: 1fr; } }
+  @media (max-width: 900px) { .first-view { grid-template-columns: 1fr; } .fv-col { height: auto; max-height: 440px; } }
   @media (max-width: 700px) { .grid { grid-template-columns: 1fr; } .grid-3 { grid-template-columns: 1fr; } .routine-cards { flex-direction: column; } }
 </style>
 </head>
@@ -835,12 +839,15 @@ async function reflectMail(){
   if(!GH_TOKEN){alert('GitHubトークンが設定されていません');return;}
   btn.disabled=true;btn.textContent='⏳ 実行中…';
   try{
-    const r=await fetch(`https://api.github.com/repos/${GH_REPO}/actions/workflows/reflect-mail.yml/dispatches`,{
-      method:'POST',
-      headers:{'Authorization':`token ${GH_TOKEN}`,'Accept':'application/vnd.github.v3+json','Content-Type':'application/json'},
-      body:JSON.stringify({ref:'main'})
-    });
-    btn.textContent=(r.status===204)?'✅ 反映開始（数分後に自動更新）':`⚠️ 失敗（${r.status}）`;
+    // 埋め込みトークンはContents権限のみ（2026-07-05権限分離）のため
+    // workflow_dispatch(要Actions権限)ではなくトリガーファイルのコミットpushで起動する
+    const path='ci_trigger/reflect.json';
+    let sha=null;
+    try{const g=await fetch(`https://api.github.com/repos/${GH_REPO}/contents/${path}`,{headers:{'Authorization':`token ${GH_TOKEN}`,'Accept':'application/vnd.github.v3+json'}});if(g.ok)sha=(await g.json()).sha;}catch(e){}
+    const body={message:'trigger reflect-mail (dashboard button)',content:btoa(unescape(encodeURIComponent(JSON.stringify({requested:new Date().toISOString()}))))};
+    if(sha)body.sha=sha;
+    const r=await fetch(`https://api.github.com/repos/${GH_REPO}/contents/${path}`,{method:'PUT',headers:{'Authorization':`token ${GH_TOKEN}`,'Content-Type':'application/json','Accept':'application/vnd.github.v3+json'},body:JSON.stringify(body)});
+    btn.textContent=(r.status===200||r.status===201)?'✅ 反映開始（数分後に自動更新）':`⚠️ 失敗（${r.status}）`;
   }catch(e){btn.textContent='⚠️ エラー';}
   setTimeout(function(){btn.disabled=false;btn.textContent='🔄 メール反映';},10000);
 }
@@ -861,6 +868,13 @@ async function ghGetSenderRules(){try{const r=await fetch(`https://api.github.co
 async function ghPutSenderRules(rules,sha){try{const b=btoa(unescape(encodeURIComponent(JSON.stringify(rules))));const body={message:'update sender rules (manual)',content:b};if(sha)body.sha=sha;await fetch(`https://api.github.com/repos/${GH_REPO}/contents/${GH_SENDER_RULES}`,{method:'PUT',headers:{'Authorization':`token ${GH_TOKEN}`,'Content-Type':'application/json','Accept':'application/vnd.github.v3+json'},body:JSON.stringify(body)});}catch(e){}}
 function _gub(){try{return JSON.parse(localStorage.getItem('ks_unified_hidden_v1')||'[]');}catch{return[];}}  // [{key:"account|domain",label:"ノジマ"}, ...] 完全非表示（×）
 function _sub(list){localStorage.setItem('ks_unified_hidden_v1',JSON.stringify(list));}
+// 個別非表示：この端末のlocalStorageのみ・sender_rules/done_stateに書かない＝AI判定に影響ゼロ
+function _gjh(){try{return JSON.parse(localStorage.getItem('ks_mail_justhidden_v1')||'[]');}catch{return[];}}
+function _sjh(l){localStorage.setItem('ks_mail_justhidden_v1',JSON.stringify(l));}
+function justHideMail(mid){const l=_gjh();if(l.indexOf(mid)<0){l.push(mid);_sjh(l);}document.querySelectorAll('.mail-item').forEach(function(el){if(el.id===mid)el.style.display='none';});_updateJustHiddenBtn();}
+function applyJustHidden(){const l=_gjh();if(l.length){document.querySelectorAll('.mail-item').forEach(function(el){if(l.indexOf(el.id)>=0)el.style.display='none';});}_updateJustHiddenBtn();}
+function _updateJustHiddenBtn(){const n=_gjh().length;document.querySelectorAll('.jh-restore-btn').forEach(function(b){b.style.display=n?'':'none';b.textContent='個別非表示 '+n+'件を戻す';});}
+function restoreJustHidden(){if(!confirm('個別非表示にしたメールを全て再表示しますか？'))return;_sjh([]);location.reload();}
 function _gubCat(){try{return JSON.parse(localStorage.getItem('ks_unified_hidden_cat_v1')||'[]');}catch{return[];}}  // [{key:"account|domain|category",label:"ノジマ"}, ...] カテゴリ限定非表示（△）
 function _subCat(list){localStorage.setItem('ks_unified_hidden_cat_v1',JSON.stringify(list));}
 function _entryKey(e){return typeof e==='string'?e:e.key;}
@@ -1148,10 +1162,9 @@ function fallbackCopy(text,done){
 
     <!-- MIDDLE: タスク一覧 -->
     <div class="fv-col">
-      <div class="section-head">📋 タスク一覧</div>
+      <div class="section-head">📋 タスク一覧 <button class="rt-toggle-btn" onclick="toggleExtraTaskForm()">＋ 追加</button></div>
       <div class="card scroll-card">
         <div id="custom-extra-tasks"></div>
-        <div style="margin:2px 0 8px;display:flex;justify-content:flex-end;"><button class="rt-toggle-btn" onclick="toggleExtraTaskForm()">＋ 追加</button></div>
         <div class="rt-form" id="extra-task-form">
           <input type="text" id="extra-task-name" placeholder="タスク名">
           <select id="extra-task-urgency">
@@ -1275,6 +1288,7 @@ function fallbackCopy(text,done){
   <!-- ═══ 全メール一覧（AI仕分け・全アカウント統合） ═══ -->
   <div class="section-head" id="unified-mail">📬 全メール一覧（AI仕分け・全アカウント統合）<span style="font-size:10px;font-weight:normal;margin-left:8px;color:var(--sub);">###UNIFIED_MAIL_FETCHED###</span>
     <button class="rebuild-btn" style="font-size:10px;padding:3px 10px;margin-left:auto;" onclick="toggleUnifiedBlocklistUI()">🚫 非表示リスト</button>
+    <button class="rebuild-btn jh-restore-btn" style="font-size:10px;padding:3px 10px;display:none;" onclick="restoreJustHidden()">個別非表示を戻す</button>
   </div>
   <div class="first-view">
     <div class="fv-col">
@@ -1409,6 +1423,7 @@ function fallbackCopy(text,done){
   renderCustomRoutines();renderExtraTasks();renderTrash();
   loadApiCost();
   applyUnifiedBlocklist();
+  applyJustHidden();
   if(GH_TOKEN){ghGetSenderRules().then(function(r){
     const hidden=[];
     Object.keys(r.rules||{}).forEach(function(acct){
