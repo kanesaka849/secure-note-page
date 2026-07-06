@@ -1240,7 +1240,7 @@ function blockCategoryUnifiedSender(account,domain,category,label){
 function unblockUnifiedSender(account,domain){
   const key=account+'|'+domain;
   const local=_gub().filter(function(e){return _entryKey(e)!==key;});_sub(local);
-  document.querySelectorAll('.mail-item[data-account="'+account+'"][data-domain="'+domain+'"]').forEach(function(el){el.style.display='';});
+  document.querySelectorAll('.mail-item[data-account="'+account+'"][data-domain="'+domain+'"]').forEach(function(el){el.removeAttribute('data-blockhidden');el.style.display='';});
   applyDoneState(_gd());applyJustHidden();
   renderUnifiedBlocklistUI();
   if(GH_TOKEN){updateSenderRules(function(rules){if(rules[account])delete rules[account][domain];});}
@@ -1248,7 +1248,7 @@ function unblockUnifiedSender(account,domain){
 function unblockCategoryUnifiedSender(account,domain,category){
   const key=account+'|'+domain+'|'+category;
   const local=_gubCat().filter(function(e){return _entryKey(e)!==key;});_subCat(local);
-  document.querySelectorAll('.mail-item[data-account="'+account+'"][data-domain="'+domain+'"][data-category="'+category+'"]').forEach(function(el){el.style.display='';});
+  document.querySelectorAll('.mail-item[data-account="'+account+'"][data-domain="'+domain+'"][data-category="'+category+'"]').forEach(function(el){el.removeAttribute('data-blockhidden');el.style.display='';});
   applyDoneState(_gd());applyJustHidden();
   renderUnifiedBlocklistUI();
   if(GH_TOKEN){updateSenderRules(function(rules){
@@ -1316,7 +1316,13 @@ function applyDoneState(list){
   var now=Date.now(),H12=12*3600*1000;
   list.forEach(function(item){
     var el=document.getElementById(item.id);if(!el)return;
-    el.classList.remove('archived');el.style.display='';
+    // ⚠️過去バグ：✕/△ブロックで非表示（data-blockhidden）のメールも、この冒頭の
+    // display=''リセットで復活していた（GitHub同期後の再適用が非同期でブロックリスト適用の
+    // 後に走ると、ブロック済みメールがグレー表示に戻る競合）。ブロック起因の非表示は
+    // ブロックリスト側が管理するため、ここでは表示状態を触らない。
+    var bh=el.getAttribute('data-blockhidden');
+    el.classList.remove('archived');
+    if(!bh)el.style.display='';
     if(item.deleted){var db=el.querySelector('.done-time-badge');if(db)db.remove();el.querySelectorAll('.archive-btn.pressed').forEach(function(x){x.classList.remove('pressed');});return;}
     if(!item.cleaned&&now-item.completedAt<H12){
       el.classList.add('archived');
