@@ -1276,9 +1276,16 @@ function addDoneBadge(el,completedAt,reason){
   if(pressedBtn)pressedBtn.classList.add('pressed');
 }
 function applyDoneState(list){
-  var now=Date.now(),H12=12*3600*1000,H7D=7*24*3600*1000;
-  var doneBase={};
-  list.forEach(function(item){if(!item.id.startsWith('r-'))return;var base=item.id.replace(/-\\d{8}$/,'');if(!doneBase[base]||item.completedAt>doneBase[base])doneBase[base]=item.completedAt;});
+  // ⚠️過去バグ：以前はここで「同じルーチンのbase id（末尾の-YYYYMMDDを除いた部分）が
+  // 直近7日以内に完了していたら、他の日付インスタンスも問答無用でstyle.display='none'にする」
+  // という処理があった。upcoming_routines()が1ルーチンにつき常に1インスタンスしか
+  // 生成しなかった頃は無害な死んだコードだったが、期限超過ルーチンを消さない修正
+  // （2026-07-06）により同じルーチンの複数インスタンス（例：7月分が未完了のまま
+  // 8月分も表示される）が同時に存在できるようになった結果、この処理が誤発火し、
+  // 「完了した7月分を操作したら未完了の8月分まで消える」という実バグを引き起こした。
+  // 各インスタンスはidが完全に独立しているため、このbase単位の巻き添え非表示は不要
+  // ＝削除し、item.idの完全一致でのみ状態を反映する。
+  var now=Date.now(),H12=12*3600*1000;
   list.forEach(function(item){
     var el=document.getElementById(item.id);if(!el)return;
     el.classList.remove('archived');el.style.display='';
@@ -1290,7 +1297,6 @@ function applyDoneState(list){
       el.style.display='none';
     }
   });
-  document.querySelectorAll('[id^="r-"]').forEach(function(el){if(el.style.display==='none'||el.classList.contains('archived'))return;var base=el.id.replace(/-\\d{8}$/,'');if(doneBase[base]&&now-doneBase[base]<H7D)el.style.display='none';});
 }
 async function cleanupDoneNow(){
   // 先にGitHubの最新done_stateを取り込んでから片づける
