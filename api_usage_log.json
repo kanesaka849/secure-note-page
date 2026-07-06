@@ -1,33 +1,5 @@
 [
   {
-    "timestamp": "2026-07-05T09:24:47.823789+00:00",
-    "model": "claude-opus-4-8",
-    "input_tokens": 46741,
-    "output_tokens": 1417,
-    "estimated_cost_usd": 0.29913
-  },
-  {
-    "timestamp": "2026-07-05T09:34:07.580124+00:00",
-    "model": "claude-haiku-4-5-20251001",
-    "input_tokens": 1273,
-    "output_tokens": 175,
-    "estimated_cost_usd": 0.00215
-  },
-  {
-    "timestamp": "2026-07-05T09:34:11.780003+00:00",
-    "model": "claude-haiku-4-5-20251001",
-    "input_tokens": 2081,
-    "output_tokens": 604,
-    "estimated_cost_usd": 0.0051
-  },
-  {
-    "timestamp": "2026-07-05T10:16:41.671567+00:00",
-    "model": "claude-haiku-4-5-20251001",
-    "input_tokens": 1273,
-    "output_tokens": 179,
-    "estimated_cost_usd": 0.00217
-  },
-  {
     "timestamp": "2026-07-05T10:16:46.809165+00:00",
     "model": "claude-haiku-4-5-20251001",
     "input_tokens": 2081,
@@ -3498,5 +3470,33 @@
     "input_tokens": 15326,
     "output_tokens": 3457,
     "estimated_cost_usd": 0.03261
+  },
+  {
+    "timestamp": "2026-07-06T14:54:00.759478+00:00",
+    "model": "claude-haiku-4-5-20251001",
+    "input_tokens": 10608,
+    "output_tokens": 2796,
+    "estimated_cost_usd": 0.02459
+  },
+  {
+    "timestamp": "2026-07-06T14:54:10.598144+00:00",
+    "model": "claude-haiku-4-5-20251001",
+    "input_tokens": 4586,
+    "output_tokens": 1573,
+    "estimated_cost_usd": 0.01245
+  },
+  {
+    "timestamp": "2026-07-06T14:54:33.388390+00:00",
+    "model": "claude-haiku-4-5-20251001",
+    "input_tokens": 14512,
+    "output_tokens": 4096,
+    "estimated_cost_usd": 0.03499
+  },
+  {
+    "timestamp": "2026-07-06T14:54:52.624789+00:00",
+    "model": "claude-haiku-4-5-20251001",
+    "input_tokens": 15326,
+    "output_tokens": 2999,
+    "estimated_cost_usd": 0.03032
   }
 ]
