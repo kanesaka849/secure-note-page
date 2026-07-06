@@ -214,7 +214,9 @@
     "r.books@emagazine.rakuten.co.jp": "hide",
     "irsv@agniyoga-yoyaku.jp": "action",
     "magazine@mail.timescar.jp": "hide",
-    "info@mail.rakuten-bank.co.jp": "info"
+    "info@mail.rakuten-bank.co.jp": "info",
+    "info@besureexams.com": "action",
+    "bizplay_noreply@innovation.co.jp": "hide"
   },
   "kanesaka_agni": {
     "no-reply@sg.newsletter.agoda-emails.com": "hide",
