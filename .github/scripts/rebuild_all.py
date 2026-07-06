@@ -1172,14 +1172,19 @@ function applyUnifiedBlocklist(){
   // ✕/△済み送信元のメールは（この端末では）リロード後も即座に画面から隠す。
   // sender_rules反映後の次回ビルドで完全に除外されるまでの橋渡し
   // （以前は12時間グレー表示のみ→「更新すると復活して見える」問題があった）。
+  // ⚠️過去バグ：この関数は「隠す」だけで「ブロック理由が消えたものを再表示する」処理が
+  // 無かったため、起動直後に古いローカルリストで隠されたメールは、直後のサーバールール
+  // 再構築でリストが正しくなっても表示に戻らなかった（リロード2回でようやく復活）。
+  // ブロック起因の非表示にはdata-blockhiddenマークを付け、リストに該当しなくなったものは
+  // 再表示してからapplyDoneState/applyJustHiddenで必要な非表示だけ再適用する。
   const keys=_gub().map(_entryKey),catKeys=_gubCat().map(_entryKey);
-  if(keys.length||catKeys.length){
-    document.querySelectorAll('.mail-item').forEach(function(el){
-      const a=el.getAttribute('data-account'),d=el.getAttribute('data-domain'),c=el.getAttribute('data-category');
-      if(!d)return;
-      if(keys.indexOf(a+'|'+d)>=0||catKeys.indexOf(a+'|'+d+'|'+c)>=0)el.style.display='none';
-    });
-  }
+  document.querySelectorAll('.mail-item').forEach(function(el){
+    const a=el.getAttribute('data-account'),d=el.getAttribute('data-domain'),c=el.getAttribute('data-category');
+    if(!d)return;
+    const blocked=keys.indexOf(a+'|'+d)>=0||catKeys.indexOf(a+'|'+d+'|'+c)>=0;
+    if(blocked){el.style.display='none';el.setAttribute('data-blockhidden','1');}
+    else if(el.getAttribute('data-blockhidden')){el.removeAttribute('data-blockhidden');el.style.display='';}
+  });
   renderUnifiedBlocklistUI();
 }
 function toggleUnifiedBlocklistUI(){
@@ -1832,6 +1837,8 @@ function fallbackCopy(text,done){
       });
     });
     _sub(hidden);_subCat(hiddenCat);applyUnifiedBlocklist();
+    // ブロック解除で再表示された分に、完了状態・個別非表示由来の非表示を再適用する
+    applyDoneState(_gd());applyJustHidden();
   });}
   // GitHubと同期して再適用
   if(GH_TOKEN){_doneQueue=_doneQueue.then(function(){return ghGet().then(function(r){const merged=mergeDone(_gd(),r.list);_sd(merged);applyDoneState(merged);renderExtraTasks();const ids=function(l){return l.map(function(i){return i.id;}).sort().join(',');};if(ids(merged)!==ids(r.list))return ghPut(merged,r.sha);});}).catch(function(){});}
