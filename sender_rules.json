@@ -184,7 +184,8 @@
     "verification-noreply@onamae.com": "action",
     "notifications@stripe.com": "action",
     "advertise-noreply@global.metamail.com": "hide",
-    "news@ns.chatwork.com": "hide"
+    "news@ns.chatwork.com": "hide",
+    "marketing@tsr-net.co.jp": "maybe_spam"
   },
   "kanesaka_agni": {
     "no-reply@sg.newsletter.agoda-emails.com": "hide",
