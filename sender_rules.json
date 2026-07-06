@@ -212,7 +212,8 @@
     "oem1@redas.co.jp": "hide",
     "k-mochizuki@pro-fukugyo.com": "hide",
     "r.books@emagazine.rakuten.co.jp": "hide",
-    "irsv@agniyoga-yoyaku.jp": "action"
+    "irsv@agniyoga-yoyaku.jp": "action",
+    "magazine@mail.timescar.jp": "hide"
   },
   "kanesaka_agni": {
     "no-reply@sg.newsletter.agoda-emails.com": "hide",
