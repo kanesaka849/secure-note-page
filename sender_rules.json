@@ -220,7 +220,8 @@
     "rpay-news@emagazine.rakuten.co.jp": "hide",
     "req_support@777town.net": "hide",
     "service@ac.rakuten-bank.co.jp": "action",
-    "friendupdates@facebookmail.com": "hide"
+    "friendupdates@facebookmail.com": "hide",
+    "circle@c-sqr.net": "action"
   },
   "kanesaka_agni": {
     "no-reply@sg.newsletter.agoda-emails.com": "hide",
