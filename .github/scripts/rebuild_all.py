@@ -1042,6 +1042,12 @@ const GH_REPO='kanesaka849/secure-note-page';
 const GH_DONE='done_state.json';
 async function ghGet(){try{const r=await fetch(`https://api.github.com/repos/${GH_REPO}/contents/${GH_DONE}`,{headers:{'Authorization':`token ${GH_TOKEN}`,'Accept':'application/vnd.github.v3+json'}});if(!r.ok)return{list:[],sha:null};const d=await r.json();const l=JSON.parse(decodeURIComponent(escape(atob(d.content.replace(/\\n/g,'')))));return{list:Array.isArray(l)?l:[],sha:d.sha};}catch(e){return{list:[],sha:null};}}
 async function ghPut(list,sha){for(let i=0;i<3;i++){try{const b=btoa(unescape(encodeURIComponent(JSON.stringify(list))));const body={message:'sync',content:b};if(sha)body.sha=sha;const r=await fetch(`https://api.github.com/repos/${GH_REPO}/contents/${GH_DONE}`,{method:'PUT',headers:{'Authorization':`token ${GH_TOKEN}`,'Content-Type':'application/json','Accept':'application/vnd.github.v3+json'},body:JSON.stringify(body)});if(r.status===200||r.status===201)return;}catch(e){}const g=await ghGet();list=mergeDone(list,g.list);sha=g.sha;_sd(list);}}
+// done_state.jsonへの書込みは直列キュー化する（sender_rules.jsonの_srQueueと同じ理由：
+// ✕で複数メールを一括ブロックすると_archiveMatchingがメール件数分archiveItem()を呼び、
+// 以前は各回が独立にghGet→ghPut を並行発火していたため409衝突が集中し、
+// リトライ上限を使い切ると失敗が黙って握りつぶされていた）。
+let _doneQueue=Promise.resolve();
+function syncDoneState(){_doneQueue=_doneQueue.then(function(){return ghGet().then(function(r){const merged=mergeDone(_gd(),r.list);_sd(merged);return ghPut(merged,r.sha);});}).catch(function(){});return _doneQueue;}
 async function reflectMail(){
   const btn=document.getElementById('reflect-mail-btn');
   if(!GH_TOKEN){alert('GitHubトークンが設定されていません');return;}
@@ -1186,6 +1192,14 @@ function _archiveMatching(selector,reason,meta){
 function blockUnifiedSender(account,domain,category,label){
   if(!domain)return;
   if(category==='action'){alert('現在「要対応」のメールです。送信元を丸ごと非表示にすると今後の要対応メールも見えなくなるため、代わりに△（このカテゴリだけ非表示）をお使いください');return;}
+  // ⚠️過去バグ：このガードはクリックした本人のメールのカテゴリしか見ておらず、
+  // _archiveMatchingの対象セレクタにはカテゴリ条件が無いため、同じ送信元の別の
+  // 要対応メールが無警告で一緒に非表示化されてしまっていた（要対応メールを守る
+  // という本ガードの意図を素通りするバグ）。同一送信元に要対応メールが他にもあれば
+  // 確認ダイアログを出す。
+  if(document.querySelector('.mail-item[data-account="'+account+'"][data-domain="'+domain+'"][data-category="action"]')){
+    if(!confirm('「'+(label||domain)+'」には現在「要対応」のメールもあります。送信元を丸ごと非表示にすると、その要対応メールも今後見えなくなります。よろしいですか？'))return;
+  }
   const key=account+'|'+domain;
   const local=_gub();if(!local.find(function(e){return _entryKey(e)===key;})){local.push({key:key,label:label||''});_sub(local);}
   _archiveMatching('.mail-item[data-account="'+account+'"][data-domain="'+domain+'"]','block',{account:account,domain:domain});
@@ -1204,6 +1218,11 @@ function blockCategoryUnifiedSender(account,domain,category,label){
   if(GH_TOKEN){updateSenderRules(function(rules){
     rules[account]=rules[account]||{};
     const cur=rules[account][domain];
+    // ⚠️過去バグ：curが文字列'hide'（✕による全カテゴリ完全ブロック）の場合、
+    // typeof cur==='object'がfalseになりcats=[]から再構築され、
+    // 全体ブロックが単一カテゴリだけの部分ブロックに静かに格下げされていた。
+    // 既に全体ブロック済みなら何もしない（格下げしない）。
+    if(cur==='hide')return;
     const cats=(cur&&typeof cur==='object'&&Array.isArray(cur.hide_categories))?cur.hide_categories.slice():[];
     if(!cats.includes(category))cats.push(category);
     rules[account][domain]={hide_categories:cats};
@@ -1309,7 +1328,7 @@ async function cleanupDoneNow(){
   if(!confirm('完了・非表示にした '+pending.length+' 件をいますぐ画面から片づけます（完了履歴には残ります）。よろしいですか？'))return;
   pending.forEach(function(d){d.cleaned=true;});
   _sd(list);applyDoneState(list);renderExtraTasks();
-  if(GH_TOKEN)ghPut(list,sha);
+  if(GH_TOKEN){_doneQueue=_doneQueue.then(function(){return ghPut(list,sha);}).catch(function(){});}
 }
 function toggleKpiDetail(id){const el=document.getElementById(id);if(!el)return;const open=el.classList.contains('open');document.querySelectorAll('.kpi-mail-detail.open').forEach(e=>e.classList.remove('open'));if(!open)el.classList.add('open');}
 function openPop(id){document.querySelectorAll('.pop-overlay').forEach(e=>e.classList.remove('open'));var el=document.getElementById(id);if(el)el.classList.add('open');}
@@ -1400,16 +1419,32 @@ function trashPurgeOld(){const now=Date.now(),D30=30*24*3600*1000;_str(_gtr().fi
 function renderTrash(){
   const el=document.getElementById('trash-list');if(!el)return;
   const wrap=document.getElementById('trash-card');
-  const list=_gtr().slice().sort(function(a,b){return b.deletedAt-a.deletedAt;});
+  const localTrash=_gtr();
+  const localIds={};localTrash.forEach(function(t){localIds[t.id]=true;});
+  // ⚠️過去バグ：追加タスクのゴミ箱(ks_trash_v1)は端末ローカルのみだが、削除自体は
+  // extra_tasks.json経由で端末間同期される。別端末で削除された分はこのローカル端末の
+  // ゴミ箱には入っていないため、extra_tasks.json側のdeleted:trueを直接拾って補う。
+  const syncedExtraTrash=_gxt().filter(function(t){return t.deleted&&!localIds[t.id];}).map(function(t){
+    return{id:t.id,kind:'extra',name:t.name,source:t.source,urgency:t.urgency||'',mailId:t.mailId,detail:t.detail||'',deletedAt:t.ts||Date.now()};
+  });
+  const list=localTrash.concat(syncedExtraTrash).sort(function(a,b){return b.deletedAt-a.deletedAt;});
   if(wrap)wrap.style.display=list.length?'':'none';
   el.innerHTML=list.map(function(t){return `<div class="routine-item" id="trash-${t.id}"><div class="routine-name">${_esc(t.name)}</div><div class="routine-freq">${_esc(t.freq||'')}<button class="rt-del-btn" onclick="restoreTrashItem('${t.id}')" title="元に戻す">↩</button></div></div>`;}).join('');
 }
 function restoreTrashItem(id){
-  const list=_gtr();const idx=list.findIndex(function(t){return t.id===id;});if(idx<0)return;
-  const item=list[idx];list.splice(idx,1);_str(list);
-  if(item.kind==='routine'){const rl=_gr();rl.push({id:item.id,name:item.name,freq:item.freq});_sr(rl);renderCustomRoutines();}
-  else if(item.kind==='extra'){const xl=_gxt();const ex=xl.find(function(x){return x.id===item.id;});if(ex){ex.deleted=false;ex.ts=Date.now();if(!ex.detail&&item.detail)ex.detail=item.detail;}else{xl.push({id:item.id,name:item.name,source:item.source||'manual',urgency:item.urgency||'',mailId:item.mailId,detail:item.detail||'',addedAt:Date.now(),ts:Date.now()});}_sxt(xl);renderExtraTasks();syncXt();}
-  else if(item.kind==='builtin'){const el2=document.getElementById(item.id);if(el2)el2.style.display='';}
+  const list=_gtr();const idx=list.findIndex(function(t){return t.id===id;});
+  if(idx>=0){
+    const item=list[idx];list.splice(idx,1);_str(list);
+    if(item.kind==='routine'){const rl=_gr();rl.push({id:item.id,name:item.name,freq:item.freq});_sr(rl);renderCustomRoutines();}
+    else if(item.kind==='extra'){const xl=_gxt();const ex=xl.find(function(x){return x.id===item.id;});if(ex){ex.deleted=false;ex.ts=Date.now();if(!ex.detail&&item.detail)ex.detail=item.detail;}else{xl.push({id:item.id,name:item.name,source:item.source||'manual',urgency:item.urgency||'',mailId:item.mailId,detail:item.detail||'',addedAt:Date.now(),ts:Date.now()});}_sxt(xl);renderExtraTasks();syncXt();}
+    else if(item.kind==='builtin'){const el2=document.getElementById(item.id);if(el2)el2.style.display='';}
+    renderTrash();
+    return;
+  }
+  // ローカルのゴミ箱には無いが、extra_tasks.json側で同期されたdeleted:true
+  // （別端末での削除）の場合はそちらを直接復元する。
+  const xl=_gxt();const ex=xl.find(function(x){return x.id===id;});
+  if(ex&&ex.deleted){ex.deleted=false;ex.ts=Date.now();_sxt(xl);renderExtraTasks();syncXt();}
   renderTrash();
 }
 function deleteBuiltinRoutine(id){
@@ -1431,10 +1466,17 @@ function archiveItem(id,reason,meta){
   const text=textEl?textEl.textContent.trim().slice(0,60):'';
   const item={id,text,completedAt:Date.now(),reason:reason||'done'};
   if(meta)item.meta=meta;
-  const list=_gd();if(!list.find(i=>i.id===id)){list.push(item);_sd(list);}
+  const list=_gd();
+  // ⚠️過去バグ：以前は`if(!list.find(...))`で既存レコードの有無だけを見ており、
+  // 一度undoItem()で取消（deleted:trueのタンブストーン化）されたidは「既存」と判定されて
+  // 以後は二度と保存されず、UIだけ完了に見えてリロードで元に戻るバグがあった。
+  // 常に新しいitemで上書き（deletedを引き継がない）することで再完了できるようにする。
+  const idx=list.findIndex(function(i){return i.id===id;});
+  if(idx>=0){list[idx]=item;}else{list.push(item);}
+  _sd(list);
   el.classList.add('archived');
   addDoneBadge(el,item.completedAt,item.reason);
-  if(GH_TOKEN){ghGet().then(function(r){const merged=mergeDone(_gd(),r.list);_sd(merged);ghPut(merged,r.sha);});}
+  if(GH_TOKEN)syncDoneState();
 }
 function undoItem(id){
   const list=_gd();const item=list.find(function(i){return i.id===id;});
@@ -1444,7 +1486,7 @@ function undoItem(id){
   if(item){item.deleted=true;item.cleaned=false;item.completedAt=Date.now();}
   _sd(list);
   if(el){el.classList.remove('archived');el.style.display='';const b=el.querySelector('.done-time-badge');if(b)b.remove();el.querySelectorAll('.archive-btn.pressed').forEach(function(btn){btn.classList.remove('pressed');});}
-  if(GH_TOKEN){ghGet().then(function(r){const merged=mergeDone(list,r.list);_sd(merged);ghPut(merged,r.sha);});}
+  if(GH_TOKEN)syncDoneState();
   if(item&&item.meta){
     const m=item.meta;
     if(item.reason==='block')unblockUnifiedSender(m.account,m.domain);
@@ -1781,7 +1823,7 @@ function fallbackCopy(text,done){
     _sub(hidden);applyUnifiedBlocklist();
   });}
   // GitHubと同期して再適用
-  if(GH_TOKEN){ghGet().then(function(r){const merged=mergeDone(_gd(),r.list);_sd(merged);applyDoneState(merged);renderExtraTasks();const ids=function(l){return l.map(function(i){return i.id;}).sort().join(',');};if(ids(merged)!==ids(r.list))ghPut(merged,r.sha);});}
+  if(GH_TOKEN){_doneQueue=_doneQueue.then(function(){return ghGet().then(function(r){const merged=mergeDone(_gd(),r.list);_sd(merged);applyDoneState(merged);renderExtraTasks();const ids=function(l){return l.map(function(i){return i.id;}).sort().join(',');};if(ids(merged)!==ids(r.list))return ghPut(merged,r.sha);});}).catch(function(){});}
 })();
 </script>
 </body>
@@ -1839,6 +1881,28 @@ function fmtDate(ts){var d=new Date(ts);return(d.getMonth()+1)+'/'+d.getDate()+'
 async function ghGet(){try{const r=await fetch('https://api.github.com/repos/'+GH_REPO+'/contents/'+GH_DONE,{headers:{'Authorization':'token '+GH_TOKEN,'Accept':'application/vnd.github.v3+json'}});if(!r.ok)return{list:[],sha:null};const d=await r.json();const l=JSON.parse(decodeURIComponent(escape(atob(d.content.replace(/\\n/g,'')))));return{list:Array.isArray(l)?l:[],sha:d.sha};}catch(e){return{list:[],sha:null};}}
 async function ghPut(list,sha){for(let i=0;i<3;i++){try{const b=btoa(unescape(encodeURIComponent(JSON.stringify(list))));const body={message:'sync',content:b};if(sha)body.sha=sha;const r=await fetch('https://api.github.com/repos/'+GH_REPO+'/contents/'+GH_DONE,{method:'PUT',headers:{'Authorization':'token '+GH_TOKEN,'Content-Type':'application/json','Accept':'application/vnd.github.v3+json'},body:JSON.stringify(body)});if(r.status===200||r.status===201)return;}catch(e){}const g=await ghGet();list=mergeDone(list,g.list);sha=g.sha;_sd(list);}}
 function mergeDone(a,b){const m={};[...a,...b].forEach(function(i){const c=m[i.id];if(!c||i.completedAt>c.completedAt){m[i.id]=Object.assign({},i);if(c&&c.cleaned)m[i.id].cleaned=true;}else if(i.cleaned){c.cleaned=true;}});return Object.values(m);}
+// 送信元ブロックの解除用（ダッシュボード本体のunblockUnifiedSender/unblockCategoryUnifiedSenderと
+// 同じロジックの簡易版。このページには送信元ブロック一覧UIが無いため最小限だけ移植する）
+const GH_SENDER_RULES='sender_rules.json';
+async function _ghGetSenderRules(){try{const r=await fetch('https://api.github.com/repos/'+GH_REPO+'/contents/'+GH_SENDER_RULES,{headers:{'Authorization':'token '+GH_TOKEN,'Accept':'application/vnd.github.v3+json'}});if(!r.ok)return{rules:{},sha:null};const d=await r.json();return{rules:JSON.parse(decodeURIComponent(escape(atob(d.content.replace(/\\n/g,''))))),sha:d.sha};}catch(e){return{rules:{},sha:null};}}
+async function _ghPutSenderRules(rules,sha){try{const b=btoa(unescape(encodeURIComponent(JSON.stringify(rules))));const body={message:'update sender rules (restore from history)',content:b};if(sha)body.sha=sha;const r=await fetch('https://api.github.com/repos/'+GH_REPO+'/contents/'+GH_SENDER_RULES,{method:'PUT',headers:{'Authorization':'token '+GH_TOKEN,'Content-Type':'application/json','Accept':'application/vnd.github.v3+json'},body:JSON.stringify(body)});return r.status===200||r.status===201;}catch(e){return false;}}
+async function _unblockSenderFromHistory(reason,meta){
+  if(!meta||!GH_TOKEN||(reason!=='block'&&reason!=='blockCategory'))return;
+  for(let i=0;i<3;i++){
+    const r=await _ghGetSenderRules();
+    const rules=r.rules||{};
+    if(reason==='block'){
+      if(rules[meta.account])delete rules[meta.account][meta.domain];
+    }else{
+      const cur=rules[meta.account]&&rules[meta.account][meta.domain];
+      if(cur&&typeof cur==='object'&&Array.isArray(cur.hide_categories)){
+        cur.hide_categories=cur.hide_categories.filter(function(c){return c!==meta.category;});
+        if(!cur.hide_categories.length)delete rules[meta.account][meta.domain];
+      }
+    }
+    if(await _ghPutSenderRules(rules,r.sha))return;
+  }
+}
 var _ghSha=null;
 function render(list){
   var el=document.getElementById('hist-container');
@@ -1850,21 +1914,32 @@ function render(list){
   var html='';
   function rows(items,label){
     html+='<div class="section"><div class="section-title">'+label+'</div>';
-    items.forEach(function(item){html+='<div class="hist-item"><span class="hist-date">'+fmtDate(item.completedAt)+'</span><span class="hist-text">'+_esc(item.text||item.id)+'</span><button class="restore-btn" id="rb-'+item.id.replace(/[^a-z0-9]/gi,'-')+'" onclick="restore(\\''+item.id+'\\')">戻す</button></div>';});
+    items.forEach(function(item){html+='<div class="hist-item"><span class="hist-date">'+fmtDate(item.completedAt)+'</span><span class="hist-text">'+_esc(item.text||item.id)+'</span><button class="restore-btn" onclick="restore(\\''+item.id+'\\',this)">戻す</button></div>';});
     html+='</div>';
   }
   if(recent.length)rows(recent,'⏳ 12時間以内（ダッシュボードにグレー表示中）');
   if(old.length)rows(old,'📁 完了済み（ダッシュボードから非表示）');
   el.innerHTML=html;
 }
-async function restore(id){
-  var btn=document.getElementById('rb-'+id.replace(/[^a-z0-9]/gi,'-'));
+async function restore(id,btn){
+  // ⚠️過去バグ：以前はDOM id（英数字以外を'-'に正規化）経由でボタンを逆引きしており、
+  // 記号違いだけの別idが同じDOM idにサニタイズされて衝突するリスクがあった。
+  // クリックされたボタン要素を直接受け取ることで逆引き自体を不要にする。
   if(btn)btn.disabled=true;
-  var list=_gd().filter(function(i){return i.id!==id;});
+  var list=_gd();
+  var item=list.find(function(i){return i.id===id;});
+  // ⚠️過去バグ：以前は.filter()でレコードを完全削除しており、ダッシュボード本体のundoItem()が
+  // 採用しているタンブストーン方式（deleted:true）と矛盾していた。他端末の古いローカルと
+  // マージされた際に削除が伝搬せず、完了状態が復活してしまうリスクがあった。
+  if(item){item.deleted=true;item.cleaned=false;item.completedAt=Date.now();}
   _sd(list);
   var r=await ghGet();
-  var merged=r.list.filter(function(i){return i.id!==id;});
+  var merged=mergeDone(list,r.list);
   _sd(merged);await ghPut(merged,r.sha);_ghSha=null;
+  // ⚠️過去バグ：送信元ブロック(✕/△)由来のエントリを「戻す」しても、ダッシュボード本体の
+  // undoItem()と違いsender_rules.jsonのブロックを解除していなかったため、
+  // 送信元が永久に非表示のままになっていた。
+  if(item&&item.meta)await _unblockSenderFromHistory(item.reason,item.meta);
   document.getElementById('sync-status').textContent='✅ 同期完了';
   render(_gd());
 }
