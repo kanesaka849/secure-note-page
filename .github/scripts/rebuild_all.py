@@ -425,6 +425,13 @@ def _nth_weekday(year, month, weekday, n):
     return d + timedelta(days=offset + 7*(n-1))
 
 def upcoming_routines(today_dt, days=7):
+    """指定日数先までの「今後の予定」に加え、期限が過ぎてもチェックされていない可能性がある
+    直近の予定も含める（過去バグ：monthly_day/monthly_weekday/yearlyは元々『today_dt<=due』の
+    下限があり、期限当日を過ぎた瞬間に次の周期がまだ7日以内の窓に入らず、未完了のまま
+    カード自体が生成されなくなる＝チェックしていないのに消えたように見える実バグがあった。
+    完了済みかどうかはdone_state.json（クライアント側localStorage/GitHub同期）でしか判定できず
+    このサーバー側生成時点では分からないため、期限超過分も一定期間は生成し続け、
+    実際に完了済みなら applyDoneState() 側でグレー表示にする方式に統一する）。"""
     end_dt = today_dt + timedelta(days=days)
     results = []
     for r in ROUTINES:
@@ -435,7 +442,8 @@ def upcoming_routines(today_dt, days=7):
             if due <= end_dt:
                 results.append((due, r))
         elif t == 'monthly_day':
-            for dm in [0, 1]:
+            start_dt = today_dt - timedelta(days=60)  # 未完了のまま2ヶ月近く経っても消さない
+            for dm in [-1, 0, 1]:
                 m = today_dt.month + dm
                 y = today_dt.year + (m - 1) // 12
                 m = (m - 1) % 12 + 1
@@ -443,27 +451,26 @@ def upcoming_routines(today_dt, days=7):
                     due = date(y, m, r['day'])
                 except ValueError:
                     continue
-                if today_dt <= due <= end_dt:
+                if start_dt <= due <= end_dt:
                     results.append((due, r))
-                    break
         elif t == 'monthly_weekday':
-            for dm in [0, 1]:
+            start_dt = today_dt - timedelta(days=60)
+            for dm in [-1, 0, 1]:
                 m = today_dt.month + dm
                 y = today_dt.year + (m - 1) // 12
                 m = (m - 1) % 12 + 1
                 due = _nth_weekday(y, m, r['weekday'], r['week'])
-                if today_dt <= due <= end_dt:
+                if start_dt <= due <= end_dt:
                     results.append((due, r))
-                    break
         elif t == 'yearly':
-            for dy in [0, 1]:
+            start_dt = today_dt - timedelta(days=400)  # 年1回なので未完了なら1年近く経っても消さない
+            for dy in [-1, 0, 1]:
                 try:
                     due = date(today_dt.year + dy, r['month'], r['day'])
                 except ValueError:
                     continue
-                if today_dt <= due <= end_dt:
+                if start_dt <= due <= end_dt:
                     results.append((due, r))
-                    break
     results.sort(key=lambda x: x[0])
     return results
 
@@ -474,14 +481,18 @@ def generate_routine_tasks(today_dt):
     parts = []
     for due, r in items:
         rid = f'r-{r["id"]}-{due.strftime("%Y%m%d")}'
+        overdue = due < today_dt
         if due == today_dt:
             label = f'今日（{WEEKDAY_JP[due.weekday()]}）'
         elif due == today_dt + timedelta(days=1):
             label = f'明日（{WEEKDAY_JP[due.weekday()]}）'
+        elif overdue:
+            label = f'⚠️期限超過 {due.month}/{due.day}（{WEEKDAY_JP[due.weekday()]}）'
         else:
             label = f'{due.month}/{due.day}（{WEEKDAY_JP[due.weekday()]}）'
         detail_lines = he(r.get('detail','')).replace('\n','<br>')
-        parts.append(f"""        <div class="task-card routine" id="{rid}">
+        card_class = 'task-card routine overdue' if overdue else 'task-card routine'
+        parts.append(f"""        <div class="{card_class}" id="{rid}">
           <div class="task-header" onclick="toggleDetail('{rid}')">
             <div class="task-title"><span class="badge {r['badge']}">🔄</span> {label} {he(r['name'])}</div>
             <button class="archive-btn" onclick="event.stopPropagation();archiveItem('{rid}')">✓</button>
@@ -910,6 +921,7 @@ DASHBOARD_TEMPLATE = """<!DOCTYPE html>
   .task-card.paused  { border-left: 4px solid var(--gray);   background: #fafafa; }
   .task-card.done    { border-left: 4px solid var(--blue);   background: #f0f8ff; opacity: 0.7; }
   .task-card.routine { border-left: 4px solid var(--orange); background: #fff8f0; }
+  .task-card.routine.overdue { border-left-color: var(--red); background: #fff5f5; }
   .task-card.extra   { border-left: 4px solid var(--teal);   background: #f7fffe; }
   .task-card.extra.urgency-urgent { border-left-color: var(--red);    background: #fff5f5; }
   .task-card.extra.urgency-soon   { border-left-color: var(--orange); background: #fff8f0; }
