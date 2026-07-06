@@ -1,40 +1,5 @@
 [
   {
-    "timestamp": "2026-07-04T15:11:09.325052+00:00",
-    "model": "claude-haiku-4-5-20251001",
-    "input_tokens": 2081,
-    "output_tokens": 613,
-    "estimated_cost_usd": 0.00515
-  },
-  {
-    "timestamp": "2026-07-04T15:13:59.847237+00:00",
-    "model": "claude-haiku-4-5-20251001",
-    "input_tokens": 1923,
-    "output_tokens": 422,
-    "estimated_cost_usd": 0.00403
-  },
-  {
-    "timestamp": "2026-07-04T15:14:03.680424+00:00",
-    "model": "claude-haiku-4-5-20251001",
-    "input_tokens": 2081,
-    "output_tokens": 522,
-    "estimated_cost_usd": 0.00469
-  },
-  {
-    "timestamp": "2026-07-04T15:22:18.113920+00:00",
-    "model": "claude-haiku-4-5-20251001",
-    "input_tokens": 1923,
-    "output_tokens": 523,
-    "estimated_cost_usd": 0.00454
-  },
-  {
-    "timestamp": "2026-07-04T15:22:22.993610+00:00",
-    "model": "claude-haiku-4-5-20251001",
-    "input_tokens": 2081,
-    "output_tokens": 658,
-    "estimated_cost_usd": 0.00537
-  },
-  {
     "timestamp": "2026-07-04T15:24:00.244287+00:00",
     "model": "claude-haiku-4-5-20251001",
     "input_tokens": 1923,
@@ -3498,5 +3463,40 @@
     "input_tokens": 15361,
     "output_tokens": 3132,
     "estimated_cost_usd": 0.03102
+  },
+  {
+    "timestamp": "2026-07-06T00:23:47.756234+00:00",
+    "model": "claude-haiku-4-5-20251001",
+    "input_tokens": 12198,
+    "output_tokens": 3362,
+    "estimated_cost_usd": 0.02901
+  },
+  {
+    "timestamp": "2026-07-06T00:23:59.460544+00:00",
+    "model": "claude-haiku-4-5-20251001",
+    "input_tokens": 5249,
+    "output_tokens": 1986,
+    "estimated_cost_usd": 0.01518
+  },
+  {
+    "timestamp": "2026-07-06T00:24:21.906295+00:00",
+    "model": "claude-haiku-4-5-20251001",
+    "input_tokens": 12640,
+    "output_tokens": 3737,
+    "estimated_cost_usd": 0.03132
+  },
+  {
+    "timestamp": "2026-07-06T00:24:42.339402+00:00",
+    "model": "claude-haiku-4-5-20251001",
+    "input_tokens": 15326,
+    "output_tokens": 3327,
+    "estimated_cost_usd": 0.03196
+  },
+  {
+    "timestamp": "2026-07-06T00:25:05.643413+00:00",
+    "model": "claude-opus-4-8",
+    "input_tokens": 14432,
+    "output_tokens": 682,
+    "estimated_cost_usd": 0.11921
   }
 ]

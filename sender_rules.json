@@ -185,7 +185,8 @@
     "notifications@stripe.com": "action",
     "advertise-noreply@global.metamail.com": "hide",
     "news@ns.chatwork.com": "hide",
-    "marketing@tsr-net.co.jp": "maybe_spam"
+    "marketing@tsr-net.co.jp": "maybe_spam",
+    "osa-office@airchina.co.jp": "action"
   },
   "kanesaka_agni": {
     "no-reply@sg.newsletter.agoda-emails.com": "hide",
@@ -238,7 +239,8 @@
     "no-reply@agoda.com": "info",
     "invoice+statements@mail.anthropic.com": "info",
     "contact@t.brevo.com": "action",
-    "info@freebieac.net": "hide"
+    "info@freebieac.net": "hide",
+    "ads-noreply@google.com": "hide"
   },
   "agniyoga_ad": {
     "yui.m@google.com": "unclear",
