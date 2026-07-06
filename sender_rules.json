@@ -218,7 +218,8 @@
     "info@besureexams.com": "action",
     "bizplay_noreply@innovation.co.jp": "hide",
     "rpay-news@emagazine.rakuten.co.jp": "hide",
-    "req_support@777town.net": "hide"
+    "req_support@777town.net": "hide",
+    "service@ac.rakuten-bank.co.jp": "action"
   },
   "kanesaka_agni": {
     "no-reply@sg.newsletter.agoda-emails.com": "hide",
@@ -272,7 +273,8 @@
     "invoice+statements@mail.anthropic.com": "info",
     "contact@t.brevo.com": "action",
     "info@freebieac.net": "hide",
-    "ads-noreply@google.com": "hide"
+    "ads-noreply@google.com": "hide",
+    "service@ac.rakuten-bank.co.jp": "action"
   },
   "agniyoga_ad": {
     "yui.m@google.com": "unclear",
