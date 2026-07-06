@@ -1047,7 +1047,11 @@ async function ghPut(list,sha){for(let i=0;i<3;i++){try{const b=btoa(unescape(en
 // 以前は各回が独立にghGet→ghPut を並行発火していたため409衝突が集中し、
 // リトライ上限を使い切ると失敗が黙って握りつぶされていた）。
 let _doneQueue=Promise.resolve();
-function syncDoneState(){_doneQueue=_doneQueue.then(function(){return ghGet().then(function(r){const merged=mergeDone(_gd(),r.list);_sd(merged);return ghPut(merged,r.sha);});}).catch(function(){});return _doneQueue;}
+function _normDone(l){return JSON.stringify(l.slice().sort(function(a,b){return a.id<b.id?-1:a.id>b.id?1:0;}));}
+function syncDoneState(){_doneQueue=_doneQueue.then(function(){return ghGet().then(function(r){const merged=mergeDone(_gd(),r.list);_sd(merged);
+  // リモートと差分が無ければPUTしない（✕の一括ブロックで直列キューにN件並んだとき、
+  // 1件目のPUTで全エントリが反映済みになるため、残りN-1件は空振りPUT＝無駄なコミットになる）
+  if(_normDone(merged)!==_normDone(r.list))return ghPut(merged,r.sha);});}).catch(function(){});return _doneQueue;}
 async function reflectMail(){
   const btn=document.getElementById('reflect-mail-btn');
   if(!GH_TOKEN){alert('GitHubトークンが設定されていません');return;}
@@ -1814,13 +1818,20 @@ function fallbackCopy(text,done){
   applyJustHidden();
   syncXt();
   if(GH_TOKEN){ghGetSenderRules().then(function(r){
-    const hidden=[];
+    const hidden=[],hiddenCat=[];
     Object.keys(r.rules||{}).forEach(function(acct){
       Object.keys(r.rules[acct]||{}).forEach(function(domain){
-        if(r.rules[acct][domain]==='hide')hidden.push(acct+'|'+domain);
+        const v=r.rules[acct][domain];
+        if(v==='hide')hidden.push(acct+'|'+domain);
+        // ⚠️過去バグ：△（カテゴリ限定非表示）のローカルリストはここで再構築されておらず、
+        // 別端末や完了履歴ページでブロック解除してもこの端末の古いks_unified_hidden_cat_v1が
+        // メールを隠し続けていた。✕と同様にサーバーのルールを正として毎回再構築する。
+        else if(v&&typeof v==='object'&&Array.isArray(v.hide_categories)){
+          v.hide_categories.forEach(function(c){hiddenCat.push(acct+'|'+domain+'|'+c);});
+        }
       });
     });
-    _sub(hidden);applyUnifiedBlocklist();
+    _sub(hidden);_subCat(hiddenCat);applyUnifiedBlocklist();
   });}
   // GitHubと同期して再適用
   if(GH_TOKEN){_doneQueue=_doneQueue.then(function(){return ghGet().then(function(r){const merged=mergeDone(_gd(),r.list);_sd(merged);applyDoneState(merged);renderExtraTasks();const ids=function(l){return l.map(function(i){return i.id;}).sort().join(',');};if(ids(merged)!==ids(r.list))return ghPut(merged,r.sha);});}).catch(function(){});}
@@ -1944,11 +1955,17 @@ async function restore(id,btn){
   render(_gd());
 }
 async function clearHistory(){
-  if(!confirm('全件削除してGitHubにも反映しますか？'))return;
-  _sd([]);
-  var r=await ghGet();await ghPut([],r.sha);
+  if(!confirm('全件削除してGitHubにも反映しますか？\\n（完了記録が全て取り消され、該当のメール・タスクは未完了として再表示されます）'))return;
+  // ⚠️過去バグ：以前は_sd([])+ghPut([])の完全削除で、他端末の古いローカルとマージされた際に
+  // 全件が復活するリスクがあった。restore()と同じタンブストーン方式（全件deleted:true）に統一し、
+  // 削除が他端末にも正しく伝搬するようにする。
+  var now=Date.now();
+  var r=await ghGet();
+  var merged=mergeDone(_gd(),r.list);
+  merged.forEach(function(i){if(!i.deleted){i.deleted=true;i.cleaned=false;i.completedAt=now;}});
+  _sd(merged);await ghPut(merged,r.sha);
   document.getElementById('sync-status').textContent='✅ 全件削除・同期完了';
-  render([]);
+  render(merged);
 }
 (async function(){
   var r=await ghGet();
