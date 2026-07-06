@@ -213,7 +213,8 @@
     "k-mochizuki@pro-fukugyo.com": "hide",
     "r.books@emagazine.rakuten.co.jp": "hide",
     "irsv@agniyoga-yoyaku.jp": "action",
-    "magazine@mail.timescar.jp": "hide"
+    "magazine@mail.timescar.jp": "hide",
+    "info@mail.rakuten-bank.co.jp": "info"
   },
   "kanesaka_agni": {
     "no-reply@sg.newsletter.agoda-emails.com": "hide",
@@ -368,7 +369,8 @@
       "hide_categories": [
         "unclear"
       ]
-    }
+    },
+    "info@etoilecollective.com.au": "unclear"
   },
   "kanesaka_agniyoga": {
     "info@chiba-happyhouse.com": "unclear",
