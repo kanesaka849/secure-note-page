@@ -295,7 +295,8 @@
     "mail@contact.vpass.ne.jp": "action",
     "newsletter@reply.agoda-emails.com": "hide",
     "noreply-merpay-partner@mercari.jp": "unclear",
-    "support-noreply@klook.com": "action"
+    "support-noreply@klook.com": "action",
+    "info@ma.jrepoint.jp": "hide"
   },
   "agniyoga_ad": {
     "yui.m@google.com": "unclear",
