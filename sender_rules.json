@@ -48,7 +48,9 @@
     "rpay-news@emagazine.rakuten.co.jp": "unclear",
     "info@besureexams.com": "unclear",
     "bizplay_noreply@innovation.co.jp": "unclear",
-    "info@mail.rakuten-bank.co.jp": "unclear"
+    "info@mail.rakuten-bank.co.jp": "unclear",
+    "info@002.seventh-sense.co.jp": "hide",
+    "mail@eg.hotels.com": "hide"
   },
   "kanesaka_agni": {
     "mamail.jp": "action",
