@@ -1227,30 +1227,37 @@ function blockUnifiedSender(account,domain,category,label){
   // 確認ダイアログで影響を明示したうえで実行できるように変更する。
   if(category==='action'){
     const n=_countVisibleMails(account,domain,null);
-    if(!confirm('これは「要対応」のメールです。送信元「'+(label||domain)+'」を丸ごと非表示にすると、いま表示中の'+n+'件がまとめて消え、今後の要対応メール（重要な連絡を含む可能性）もすべて見えなくなります。\\n本当に非表示にしますか？\\n（この1通だけ消したい場合はキャンセルして ✓ または「隠す」をお使いください）'))return;
+    if(!confirm('これは「要対応」のメールです。送信元「'+(label||domain)+'」を丸ごと非表示にすると、いま表示中の'+n+'件がまとめて✕（グレー表示・取消可能）になり、次回の画面更新から見えなくなります。今後の要対応メール（重要な連絡を含む可能性）も表示されません。\\n本当に非表示にしますか？\\n（この1通だけ消したい場合はキャンセルして ✓ または「隠す」をお使いください）'))return;
   }
   // クリックしたメールは要対応でなくても、同じ送信元に別の要対応メールがある場合は
   // 巻き添えで非表示になるため確認する（過去バグ：無警告で一緒に消えていた）
   else if(document.querySelector('.mail-item[data-account="'+account+'"][data-domain="'+domain+'"][data-category="action"]')){
     const na=_countVisibleMails(account,domain,'action');
-    if(!confirm('「'+(label||domain)+'」には現在「要対応」のメールが'+na+'件あります。送信元を丸ごと非表示にすると、その要対応メールもまとめて今後見えなくなります。よろしいですか？'))return;
+    if(!confirm('「'+(label||domain)+'」には現在「要対応」のメールが'+na+'件あります。送信元を丸ごと非表示にすると、その要対応メールもまとめて対象になります。よろしいですか？'))return;
   }
   const key=account+'|'+domain;
   const local=_gub();if(!local.find(function(e){return _entryKey(e)===key;})){local.push({key:key,label:label||''});_sub(local);}
   _archiveMatching('.mail-item[data-account="'+account+'"][data-domain="'+domain+'"]','block',{account:account,domain:domain});
-  applyUnifiedBlocklist();
+  // ⚠️過去バグ：ここでapplyUnifiedBlocklist()を呼んでいたため、押した瞬間にメールが
+  // display:noneで即消えし、本来の設計（まず✕マーク付きグレー表示＝取消の猶予→
+  // 次回の画面更新から非表示）のグレー段階が飛ばされていた（ユーザー報告 2026-07-08
+  // 「△押したらまずマークがつくはずなのに押した瞬間に消えた」）。
+  // ブロックキーは保存済みなので次回リロード時のapplyUnifiedBlocklistで非表示になる。
+  // ここでは🚫非表示リストのUI更新だけ行う。
+  renderUnifiedBlocklistUI();
   if(GH_TOKEN){updateSenderRules(function(rules){rules[account]=rules[account]||{};rules[account][domain]='hide';});}
 }
 function blockCategoryUnifiedSender(account,domain,category,label){
   if(!domain||!category)return;
   if(category==='action'){
     const n=_countVisibleMails(account,domain,'action');
-    if(!confirm('「'+(label||domain)+'」からの「要対応」カテゴリを今後すべて非表示にします。\\nいま表示中の要対応メール'+n+'件もまとめて消えます。同じ送信元の別の重要な連絡も自動的に見えなくなる可能性があります。\\n本当によろしいですか？'))return;
+    if(!confirm('「'+(label||domain)+'」からの「要対応」カテゴリを今後すべて非表示にします。\\nいま表示中の要対応メール'+n+'件がまとめて△（グレー表示・取消可能）になり、次回の画面更新から見えなくなります。同じ送信元の別の重要な連絡も自動的に対象になる可能性があります。\\n本当によろしいですか？'))return;
   }
   const key=account+'|'+domain+'|'+category;
   const local=_gubCat();if(!local.find(function(e){return _entryKey(e)===key;})){local.push({key:key,label:label||''});_subCat(local);}
   _archiveMatching('.mail-item[data-account="'+account+'"][data-domain="'+domain+'"][data-category="'+category+'"]','blockCategory',{account:account,domain:domain,category:category});
-  applyUnifiedBlocklist();
+  // グレー段階を飛ばさない（blockUnifiedSenderと同じ理由。次回リロードから非表示）
+  renderUnifiedBlocklistUI();
   if(GH_TOKEN){updateSenderRules(function(rules){
     rules[account]=rules[account]||{};
     const cur=rules[account][domain];
