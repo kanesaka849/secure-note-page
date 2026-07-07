@@ -289,7 +289,9 @@
     "service@ac.rakuten-bank.co.jp": "action",
     "sc-noreply@google.com": "info",
     "noreply@ranking-deli.jp": "hide",
-    "announce@portal.eltax.lta.go.jp": "info"
+    "announce@portal.eltax.lta.go.jp": "info",
+    "mail@contact.vpass.ne.jp": "action",
+    "newsletter@reply.agoda-emails.com": "hide"
   },
   "agniyoga_ad": {
     "yui.m@google.com": "unclear",
