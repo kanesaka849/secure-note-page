@@ -229,7 +229,8 @@
     "info@weborder-yakkyoku.com": "hide",
     "keiko.matsumoto@002.seventh-sense.co.jp": "action",
     "info@seventh-sense.co.jp": "info",
-    "support@blastmail.jp": "maybe_spam"
+    "support@blastmail.jp": "maybe_spam",
+    "t.ishii@smes-chikara.co.jp": "maybe_spam"
   },
   "kanesaka_agni": {
     "no-reply@sg.newsletter.agoda-emails.com": "hide",
