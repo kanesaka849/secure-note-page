@@ -482,14 +482,22 @@ def apply_sender_rules(mails, account_rules):
     for m in mails:
         addr = _sender_address(m['from'])
         domain = m.get('domain', '')
+        # ドメイン単位の文字列ルールは✕ボタン等によるユーザーの明示的な指定なので、
+        # ALWAYS_FRESH_DOMAINSより優先して常に適用する。
+        # ⚠️過去バグ：ALWAYS_FRESH判定が先にあったため、accounts.google.com等のメールは
+        # ユーザーが✕で'hide'を設定しても毎回AI判定に回されてルールが完全に無視され、
+        # 「✕をいくら押しても次のメール反映で復活してくる」実バグを起こしていた
+        # （ALWAYS_FRESHの本来の意図は「AIの自動学習キャッシュを作らない・使わない」であって
+        # 「人間の明示指定まで無視する」ではない）。
+        rule_dom = account_rules.get(domain)
+        if isinstance(rule_dom, str) and rule_dom:
+            decided.append((m, rule_dom, CATEGORY_ICON.get(rule_dom, '📧'), m['subject'][:30], '', False, ''))
+            continue
         if domain in ALWAYS_FRESH_DOMAINS:
             undecided.append(m)
             continue
-        # ドメイン単位のルールは✕/△ボタンによるユーザーの明示的な指定、
-        # アドレス単位のルールはAIが自動学習したキャッシュに過ぎない。
-        # ユーザーが後からドメインごとブロックしても常にアドレス単位が勝ってしまう
-        # バグがあったため、明示的な指定であるドメイン側を優先する。
-        rule = account_rules.get(domain) or account_rules.get(addr)
+        # アドレス単位のルールはAIが自動学習したキャッシュ（ドメイン優先の理由は上記）
+        rule = rule_dom or account_rules.get(addr)
         if isinstance(rule, str) and rule:
             decided.append((m, rule, CATEGORY_ICON.get(rule, '📧'), m['subject'][:30], '', False, ''))
         else:

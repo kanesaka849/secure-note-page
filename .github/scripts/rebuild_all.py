@@ -1209,13 +1209,16 @@ function _archiveMatching(selector,reason,meta){
 }
 function blockUnifiedSender(account,domain,category,label){
   if(!domain)return;
-  if(category==='action'){alert('現在「要対応」のメールです。送信元を丸ごと非表示にすると今後の要対応メールも見えなくなるため、代わりに△（このカテゴリだけ非表示）をお使いください');return;}
-  // ⚠️過去バグ：このガードはクリックした本人のメールのカテゴリしか見ておらず、
-  // _archiveMatchingの対象セレクタにはカテゴリ条件が無いため、同じ送信元の別の
-  // 要対応メールが無警告で一緒に非表示化されてしまっていた（要対応メールを守る
-  // という本ガードの意図を素通りするバグ）。同一送信元に要対応メールが他にもあれば
-  // 確認ダイアログを出す。
-  if(document.querySelector('.mail-item[data-account="'+account+'"][data-domain="'+domain+'"][data-category="action"]')){
+  // ⚠️過去バグ：以前は要対応メールの✕を「alertを出して何もしない」で完全禁止していたため、
+  // ユーザーが要対応メールに✕を何回押しても実際には何も記録されず「いくら押しても消えない・
+  // 復活してくる」ように見えていた。△（2026-07-04にconfirm方式で解禁済み）と同様に、
+  // 確認ダイアログで影響を明示したうえで実行できるように変更する。
+  if(category==='action'){
+    if(!confirm('これは「要対応」のメールです。送信元「'+(label||domain)+'」を丸ごと非表示にすると、この送信元からの今後の要対応メール（重要な連絡を含む可能性）もすべて見えなくなります。\\n本当に非表示にしますか？\\n（この1通だけ消したい場合はキャンセルして ✓ または「隠す」をお使いください）'))return;
+  }
+  // クリックしたメールは要対応でなくても、同じ送信元に別の要対応メールがある場合は
+  // 巻き添えで非表示になるため確認する（過去バグ：無警告で一緒に消えていた）
+  else if(document.querySelector('.mail-item[data-account="'+account+'"][data-domain="'+domain+'"][data-category="action"]')){
     if(!confirm('「'+(label||domain)+'」には現在「要対応」のメールもあります。送信元を丸ごと非表示にすると、その要対応メールも今後見えなくなります。よろしいですか？'))return;
   }
   const key=account+'|'+domain;
