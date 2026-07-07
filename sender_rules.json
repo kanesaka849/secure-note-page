@@ -92,7 +92,8 @@
     "contact@t.brevo.com": "action",
     "invoice+statements@mail.anthropic.com": "info",
     "info@form.jrepoint.jp": "hide",
-    "no-reply@agoda.com": "info"
+    "no-reply@agoda.com": "info",
+    "noreply@note.com": "hide"
   },
   "agniyoga_ad": {
     "yui.m@google.com": "maybe_spam"
