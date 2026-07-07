@@ -82,28 +82,20 @@
     "support-noreply@klook.com": "action",
     "noreply-merpay-partner@mercari.jp": "unclear",
     "mail@contact.vpass.ne.jp": "action",
-<<<<<<< HEAD
     "newsletter@reply.agoda-emails.com": "info",
-=======
-    "newsletter@reply.agoda-emails.com": "hide",
->>>>>>> 31ffcb8 (reflect-mail: auto update 2026-07-07T11:43:22Z [skip ci])
     "announce@portal.eltax.lta.go.jp": "info",
     "noreply@ranking-deli.jp": "hide",
     "sc-noreply@google.com": "info",
     "notifications@agoda-messaging.com": "action",
     "service@ac.rakuten-bank.co.jp": "action",
     "ads-noreply@google.com": "info",
-    "contact@t.brevo.com": "unclear",
+    "contact@t.brevo.com": "action",
     "invoice+statements@mail.anthropic.com": "info",
     "info@form.jrepoint.jp": "hide",
     "no-reply@agoda.com": "info"
   },
   "agniyoga_ad": {
-<<<<<<< HEAD
-    "yui.m@google.com": "unclear"
-=======
-    "yui.m@google.com": "action"
->>>>>>> 31ffcb8 (reflect-mail: auto update 2026-07-07T11:43:22Z [skip ci])
+    "yui.m@google.com": "maybe_spam"
   },
   "zipyoga": {
     "rlc-info@rakus-lc.co.jp": "unclear",
