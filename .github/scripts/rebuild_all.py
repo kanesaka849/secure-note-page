@@ -1207,6 +1207,18 @@ function _archiveMatching(selector,reason,meta){
     if(!el.classList.contains('archived'))archiveItem(el.id,reason,meta);
   });
 }
+function _countVisibleMails(account,domain,category){
+  // ✕/△の実行前に「いま画面にある何件がまとめて消えるか」を数える（影響の事前明示用）。
+  // ユーザー報告 2026-07-08「△を2つ押したら要対応が全部なくなった」＝仕様どおり送信元単位で
+  // 一括非表示になったが、件数が事前に見えないため誤動作に見えた、への対策。
+  let sel='.mail-item[data-account="'+account+'"][data-domain="'+domain+'"]';
+  if(category)sel+='[data-category="'+category+'"]';
+  let n=0;
+  document.querySelectorAll(sel).forEach(function(el){
+    if(!el.classList.contains('archived')&&getComputedStyle(el).display!=='none')n++;
+  });
+  return n;
+}
 function blockUnifiedSender(account,domain,category,label){
   if(!domain)return;
   // ⚠️過去バグ：以前は要対応メールの✕を「alertを出して何もしない」で完全禁止していたため、
@@ -1214,12 +1226,14 @@ function blockUnifiedSender(account,domain,category,label){
   // 復活してくる」ように見えていた。△（2026-07-04にconfirm方式で解禁済み）と同様に、
   // 確認ダイアログで影響を明示したうえで実行できるように変更する。
   if(category==='action'){
-    if(!confirm('これは「要対応」のメールです。送信元「'+(label||domain)+'」を丸ごと非表示にすると、この送信元からの今後の要対応メール（重要な連絡を含む可能性）もすべて見えなくなります。\\n本当に非表示にしますか？\\n（この1通だけ消したい場合はキャンセルして ✓ または「隠す」をお使いください）'))return;
+    const n=_countVisibleMails(account,domain,null);
+    if(!confirm('これは「要対応」のメールです。送信元「'+(label||domain)+'」を丸ごと非表示にすると、いま表示中の'+n+'件がまとめて消え、今後の要対応メール（重要な連絡を含む可能性）もすべて見えなくなります。\\n本当に非表示にしますか？\\n（この1通だけ消したい場合はキャンセルして ✓ または「隠す」をお使いください）'))return;
   }
   // クリックしたメールは要対応でなくても、同じ送信元に別の要対応メールがある場合は
   // 巻き添えで非表示になるため確認する（過去バグ：無警告で一緒に消えていた）
   else if(document.querySelector('.mail-item[data-account="'+account+'"][data-domain="'+domain+'"][data-category="action"]')){
-    if(!confirm('「'+(label||domain)+'」には現在「要対応」のメールもあります。送信元を丸ごと非表示にすると、その要対応メールも今後見えなくなります。よろしいですか？'))return;
+    const na=_countVisibleMails(account,domain,'action');
+    if(!confirm('「'+(label||domain)+'」には現在「要対応」のメールが'+na+'件あります。送信元を丸ごと非表示にすると、その要対応メールもまとめて今後見えなくなります。よろしいですか？'))return;
   }
   const key=account+'|'+domain;
   const local=_gub();if(!local.find(function(e){return _entryKey(e)===key;})){local.push({key:key,label:label||''});_sub(local);}
@@ -1230,7 +1244,8 @@ function blockUnifiedSender(account,domain,category,label){
 function blockCategoryUnifiedSender(account,domain,category,label){
   if(!domain||!category)return;
   if(category==='action'){
-    if(!confirm('「'+domain+'」からの「要対応」カテゴリを今後すべて非表示にします。\\n同じ送信元・同じカテゴリの別の重要な連絡も自動的に見えなくなる可能性があります。\\n本当によろしいですか？'))return;
+    const n=_countVisibleMails(account,domain,'action');
+    if(!confirm('「'+(label||domain)+'」からの「要対応」カテゴリを今後すべて非表示にします。\\nいま表示中の要対応メール'+n+'件もまとめて消えます。同じ送信元の別の重要な連絡も自動的に見えなくなる可能性があります。\\n本当によろしいですか？'))return;
   }
   const key=account+'|'+domain+'|'+category;
   const local=_gubCat();if(!local.find(function(e){return _entryKey(e)===key;})){local.push({key:key,label:label||''});_subCat(local);}
