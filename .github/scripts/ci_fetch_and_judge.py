@@ -449,6 +449,30 @@ def save_judgment_cache(cache):
     return cache
 
 
+# ── 判定待ちメール（/loopセッション判定方式・2026-07-08） ──────────────────
+# Anthropic API課金ゼロ化：クラウド（このワークフロー）でのAI判定を廃止し、
+# ルール・キャッシュで確定できない新着メールは pending_judgment.enc（DASHBOARD_PW暗号化・
+# メール概要を含むため必ず暗号化）に書き出す。ユーザーPCの/loopセッション
+# （Claude Codeサブスク定額＝従量課金なし）がこれを復号して判定し、
+# mail_judgment_cache.json に書き込んで再ビルドを起動する。
+# 判定が届くまでの間、対象メールは「⏳判定待ち」として宛先不明枠に表示する。
+PENDING_FILE = os.path.join(WORKSPACE, 'pending_judgment.enc')
+PENDING_JUDGMENTS = []  # judge_account()が未判定分を積む → main()が暗号化保存
+
+
+def save_pending_judgments(pending):
+    """未判定メールの概要を暗号化して保存する（0件でも空リストで上書き＝古い残骸を消す）。"""
+    if not DASHBOARD_PW:
+        print('DASHBOARD_PW未設定のためpending_judgment.encは書き出しません')
+        return
+    import base64
+    salt = os.urandom(16)
+    token = _advice_fernet(salt).encrypt(json.dumps(pending, ensure_ascii=False).encode())
+    with open(PENDING_FILE, 'w', encoding='utf-8') as f:
+        json.dump({'salt': base64.b64encode(salt).decode(), 'token': token.decode()}, f)
+    print(f'判定待ちメール: {len(pending)}件 → pending_judgment.enc')
+
+
 # ── 送信元ルール（アカウントごと・送信元→カテゴリの辞書、学習型） ────────
 RULES_FILE = os.path.join(WORKSPACE, 'sender_rules.json')
 
@@ -699,7 +723,24 @@ def _auto_advice_targets(unified_mails, store, requested_ids):
 
 
 def process_advice_requests(unified_mails):
-    """ダッシュボードの🤖ボタンで登録された依頼＋認証/期限系の自動対象を処理する。"""
+    """ダッシュボードの🤖ボタンで登録された依頼＋認証/期限系の自動対象を処理する。
+    ⚠️ Anthropic API課金ゼロ化（2026-07-08）：クラウド側でのアドバイス生成（opus+Web検索・
+    従量課金）を廃止。依頼はci_trigger/advice_requests.jsonに残したままにし、
+    /loopセッション（サブスク定額・WebSearch内蔵）が読み取って生成・advice_store.encに
+    書き込む。この関数はワークフローでは何もしない。"""
+    if os.path.exists(ADVICE_REQ_FILE):
+        try:
+            with open(ADVICE_REQ_FILE, encoding='utf-8') as f:
+                n = len(json.load(f).get('requests', []))
+            if n:
+                print(f'🤖 アドバイス依頼{n}件は/loopセッションが処理します（クラウド側では生成しない）')
+        except Exception:
+            pass
+    return
+
+
+def _process_advice_requests_disabled(unified_mails):
+    """（旧実装・未使用）クラウド側でopus+Web検索によりアドバイスを生成していた頃のコード。"""
     reqs = []
     if os.path.exists(ADVICE_REQ_FILE):
         try:
@@ -809,22 +850,21 @@ def judge_account(account_key, account_label, mails, rules, judgment_cache=None)
     print(f'[{account_key}] ルールで確定{len(decided) - n_cached}件・判定キャッシュ{n_cached}件・AI判定が必要{len(undecided)}件')
 
     if undecided:
-        text, usage = call_anthropic_judge_unified(account_label, undecided)
-        ai_results = parse_unified_judge_output(text, undecided)
-        log_cost(usage)
-        for mail, category, icon, title, sub, phishing, recommend in ai_results:
-            # メール単位キャッシュに生カテゴリを保存（hide_categoriesフィルタ適用前）
-            judgment_cache[f'{account_key}-{mail["id"]}'] = {'c': category, 'p': 1 if phishing else 0}
-            hidden = _hide_categories_for(mail, account_rules)
-            if category in hidden:
-                category = 'hide'
-            decided.append((mail, category, icon, title, sub, phishing, recommend))
-            addr = _sender_address(mail['from'])
-            # 新規送信元（△の部分非表示ルールが無い）のみAI判定結果を文字列としてキャッシュする。
-            # 既存の{"hide_categories":...}ルールは上書きしない（毎回AI判定が必要なため）。
-            # ALWAYS_FRESH_DOMAINSは意図的に毎回AI判定するためキャッシュ自体を作らない。
-            if addr not in account_rules and mail.get('domain', '') not in ALWAYS_FRESH_DOMAINS:
-                account_rules[addr] = category
+        # ⚠️ Anthropic API課金ゼロ化（2026-07-08）：以前はここで call_anthropic_judge_unified()
+        # を呼んでいたが、クラウド側のAI判定を廃止。未判定メールは「⏳判定待ち」として
+        # 宛先不明枠に表示しつつ pending_judgment.enc に書き出し、/loopセッション
+        # （サブスク定額）が判定して mail_judgment_cache.json に反映する。
+        for mail in undecided:
+            decided.append((mail, 'unclear', '⏳', '⏳判定待ち：' + mail['subject'][:24], '', False, ''))
+            PENDING_JUDGMENTS.append({
+                'key': f'{account_key}-{mail["id"]}',
+                'account': account_key,
+                'subject': mail.get('subject', '')[:150],
+                'from': mail.get('from', '')[:150],
+                'domain': mail.get('domain', ''),
+                'date': mail.get('date', '')[:40],
+                'body': mail.get('body', '')[:600],
+            })
 
     unified = []
     for mail, category, icon, title, sub, phishing, recommend in decided:
@@ -894,6 +934,7 @@ def main():
     unified_mails += judge_account('kanesaka_agniyoga', 'kanesaka@agniyoga.jp', kanesaka_agniyoga_mails, rules, judgment_cache)
     save_sender_rules(rules)
     save_judgment_cache(judgment_cache)
+    save_pending_judgments(PENDING_JUDGMENTS)
 
     with open(os.path.join(INPUT_DIR, 'mail_unified.json'), 'w', encoding='utf-8') as f:
         json.dump({
