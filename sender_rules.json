@@ -278,7 +278,8 @@
     "contact@t.brevo.com": "action",
     "info@freebieac.net": "hide",
     "ads-noreply@google.com": "hide",
-    "service@ac.rakuten-bank.co.jp": "action"
+    "service@ac.rakuten-bank.co.jp": "action",
+    "sc-noreply@google.com": "info"
   },
   "agniyoga_ad": {
     "yui.m@google.com": "unclear",
