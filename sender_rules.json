@@ -93,7 +93,8 @@
     "invoice+statements@mail.anthropic.com": "info",
     "info@form.jrepoint.jp": "hide",
     "no-reply@agoda.com": "info",
-    "noreply@note.com": "hide"
+    "noreply@note.com": "hide",
+    "no-reply-auto@agoda.com": "hide"
   },
   "agniyoga_ad": {
     "yui.m@google.com": "maybe_spam"
