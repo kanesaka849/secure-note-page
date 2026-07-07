@@ -416,6 +416,39 @@ def parse_unified_judge_output(text, mails):
     return results
 
 
+# ── メール単位のAI判定キャッシュ（安定ID→カテゴリ） ──────────────────────
+# APIコスト対策（ユーザー報告 2026-07-08「1日10ドルかかっている」）：
+# 送信元単位のルールでは、△のhide_categoriesルールを持つ送信元とALWAYS_FRESH_DOMAINSの
+# メールが「同じメールなのに毎回AI判定」され、10分ごとの定期実行×144回/日で
+# 判定コストが積み上がっていた（実測：haikuだけで$5〜7.5/日）。
+# 同じメール（安定ID）は内容が変わらないため、判定結果をメール単位でキャッシュし
+# 二度とAIに送らない。ALWAYS_FRESHの意図（送信元単位で学習しない＝新しいメールは
+# 毎回新規に判定する）は維持される（キャッシュが効くのは「同じ1通」だけ）。
+# 保存内容はカテゴリ名とフィッシングフラグのみ（メール内容ゼロ＝公開リポジトリでも安全）。
+JUDGMENT_CACHE_FILE = os.path.join(WORKSPACE, 'mail_judgment_cache.json')
+JUDGMENT_CACHE_MAX = 3000  # 取得窓（60件×5アカウント）の数倍あれば十分
+
+
+def load_judgment_cache():
+    if os.path.exists(JUDGMENT_CACHE_FILE):
+        try:
+            with open(JUDGMENT_CACHE_FILE, encoding='utf-8') as f:
+                c = json.load(f)
+            if isinstance(c, dict):
+                return c
+        except Exception:
+            pass
+    return {}
+
+
+def save_judgment_cache(cache):
+    if len(cache) > JUDGMENT_CACHE_MAX:
+        cache = dict(list(cache.items())[-JUDGMENT_CACHE_MAX:])  # 挿入順で古い分を間引く
+    with open(JUDGMENT_CACHE_FILE, 'w', encoding='utf-8') as f:
+        json.dump(cache, f, ensure_ascii=False)
+    return cache
+
+
 # ── 送信元ルール（アカウントごと・送信元→カテゴリの辞書、学習型） ────────
 RULES_FILE = os.path.join(WORKSPACE, 'sender_rules.json')
 
@@ -748,17 +781,40 @@ def _extract_meeting_url(body):
     return ''
 
 
-def judge_account(account_key, account_label, mails, rules):
+def judge_account(account_key, account_label, mails, rules, judgment_cache=None):
     """1アカウント分のメールを判定し、統合フォーマットのdictリストを返す。"""
+    if judgment_cache is None:
+        judgment_cache = {}
     account_rules = rules.setdefault(account_key, {})
     decided, undecided = apply_sender_rules(mails, account_rules)
-    print(f'[{account_key}] ルールで確定{len(decided)}件・AI判定が必要{len(undecided)}件')
+
+    # メール単位キャッシュ：過去にAI判定済みの同じメール（安定ID）は再判定しない。
+    # キャッシュには「AIの生カテゴリ」を保存し、△のhide_categoriesフィルタは
+    # 読み出し時に毎回適用する（'hide'化した結果を保存すると、後で△を解除しても
+    # 永久に非表示のままになるため）。
+    still_undecided = []
+    n_cached = 0
+    for m in undecided:
+        ent = judgment_cache.get(f'{account_key}-{m["id"]}')
+        if ent:
+            category = ent.get('c', 'unclear')
+            if category in _hide_categories_for(m, account_rules):
+                category = 'hide'
+            decided.append((m, category, CATEGORY_ICON.get(category, '📧'),
+                            m['subject'][:30], '', bool(ent.get('p')), ''))
+            n_cached += 1
+        else:
+            still_undecided.append(m)
+    undecided = still_undecided
+    print(f'[{account_key}] ルールで確定{len(decided) - n_cached}件・判定キャッシュ{n_cached}件・AI判定が必要{len(undecided)}件')
 
     if undecided:
         text, usage = call_anthropic_judge_unified(account_label, undecided)
         ai_results = parse_unified_judge_output(text, undecided)
         log_cost(usage)
         for mail, category, icon, title, sub, phishing, recommend in ai_results:
+            # メール単位キャッシュに生カテゴリを保存（hide_categoriesフィルタ適用前）
+            judgment_cache[f'{account_key}-{mail["id"]}'] = {'c': category, 'p': 1 if phishing else 0}
             hidden = _hide_categories_for(mail, account_rules)
             if category in hidden:
                 category = 'hide'
@@ -829,13 +885,15 @@ def main():
 
     # 3) 統合判定
     rules = load_sender_rules()
+    judgment_cache = load_judgment_cache()
     unified_mails = []
-    unified_mails += judge_account('kanesaka_activia', 'kanesaka@activia.co.jp', activia_mails, rules)
-    unified_mails += judge_account('kanesaka_agni', 'kanesaka.agni@gmail.com（個人アカウント）', kanesaka_agni_mails, rules)
-    unified_mails += judge_account('agniyoga_ad', 'agniyoga.ad@gmail.com（広告運用アカウント）', agniyoga_ad_mails, rules)
-    unified_mails += judge_account('zipyoga', 'info@zipyoga.jp（ZIPシステム問い合わせ先）', zipyoga_info_mails, rules)
-    unified_mails += judge_account('kanesaka_agniyoga', 'kanesaka@agniyoga.jp', kanesaka_agniyoga_mails, rules)
+    unified_mails += judge_account('kanesaka_activia', 'kanesaka@activia.co.jp', activia_mails, rules, judgment_cache)
+    unified_mails += judge_account('kanesaka_agni', 'kanesaka.agni@gmail.com（個人アカウント）', kanesaka_agni_mails, rules, judgment_cache)
+    unified_mails += judge_account('agniyoga_ad', 'agniyoga.ad@gmail.com（広告運用アカウント）', agniyoga_ad_mails, rules, judgment_cache)
+    unified_mails += judge_account('zipyoga', 'info@zipyoga.jp（ZIPシステム問い合わせ先）', zipyoga_info_mails, rules, judgment_cache)
+    unified_mails += judge_account('kanesaka_agniyoga', 'kanesaka@agniyoga.jp', kanesaka_agniyoga_mails, rules, judgment_cache)
     save_sender_rules(rules)
+    save_judgment_cache(judgment_cache)
 
     with open(os.path.join(INPUT_DIR, 'mail_unified.json'), 'w', encoding='utf-8') as f:
         json.dump({
