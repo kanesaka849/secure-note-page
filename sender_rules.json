@@ -225,7 +225,8 @@
     "noreplymailaccntoiusd7oisdgs@ng75.intermilan3.biz.id": "action",
     "americanexpress@welcome.americanexpress.com": "info",
     "marketing@robotpayment.co.jp": "maybe_spam",
-    "aws-marketing-email-replies@amazon.com": "maybe_spam"
+    "aws-marketing-email-replies@amazon.com": "maybe_spam",
+    "info@weborder-yakkyoku.com": "hide"
   },
   "kanesaka_agni": {
     "no-reply@sg.newsletter.agoda-emails.com": "hide",
