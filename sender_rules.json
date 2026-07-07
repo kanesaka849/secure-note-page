@@ -293,7 +293,8 @@
     "announce@portal.eltax.lta.go.jp": "info",
     "mail@contact.vpass.ne.jp": "action",
     "newsletter@reply.agoda-emails.com": "hide",
-    "noreply-merpay-partner@mercari.jp": "unclear"
+    "noreply-merpay-partner@mercari.jp": "unclear",
+    "support-noreply@klook.com": "action"
   },
   "agniyoga_ad": {
     "yui.m@google.com": "unclear",
