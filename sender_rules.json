@@ -230,7 +230,8 @@
     "keiko.matsumoto@002.seventh-sense.co.jp": "action",
     "info@seventh-sense.co.jp": "info",
     "support@blastmail.jp": "maybe_spam",
-    "t.ishii@smes-chikara.co.jp": "maybe_spam"
+    "t.ishii@smes-chikara.co.jp": "maybe_spam",
+    "announce@portal.eltax.lta.go.jp": "info"
   },
   "kanesaka_agni": {
     "no-reply@sg.newsletter.agoda-emails.com": "hide",
@@ -287,7 +288,8 @@
     "ads-noreply@google.com": "hide",
     "service@ac.rakuten-bank.co.jp": "action",
     "sc-noreply@google.com": "info",
-    "noreply@ranking-deli.jp": "hide"
+    "noreply@ranking-deli.jp": "hide",
+    "announce@portal.eltax.lta.go.jp": "info"
   },
   "agniyoga_ad": {
     "yui.m@google.com": "unclear",
