@@ -233,7 +233,8 @@
     "t.ishii@smes-chikara.co.jp": "maybe_spam",
     "announce@portal.eltax.lta.go.jp": "info",
     "info-keiei@fmltd.co.jp": "action",
-    "noreply@pay.jp": "info"
+    "noreply@pay.jp": "info",
+    "info@m.mitsui-direct.co.jp": "info"
   },
   "kanesaka_agni": {
     "no-reply@sg.newsletter.agoda-emails.com": "hide",
@@ -296,7 +297,8 @@
     "newsletter@reply.agoda-emails.com": "hide",
     "noreply-merpay-partner@mercari.jp": "unclear",
     "support-noreply@klook.com": "action",
-    "info@ma.jrepoint.jp": "hide"
+    "info@ma.jrepoint.jp": "hide",
+    "newsletter@marketing.klook.com": "hide"
   },
   "agniyoga_ad": {
     "yui.m@google.com": "unclear",
