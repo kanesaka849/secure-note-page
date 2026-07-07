@@ -231,7 +231,8 @@
     "info@seventh-sense.co.jp": "info",
     "support@blastmail.jp": "maybe_spam",
     "t.ishii@smes-chikara.co.jp": "maybe_spam",
-    "announce@portal.eltax.lta.go.jp": "info"
+    "announce@portal.eltax.lta.go.jp": "info",
+    "info-keiei@fmltd.co.jp": "action"
   },
   "kanesaka_agni": {
     "no-reply@sg.newsletter.agoda-emails.com": "hide",
@@ -291,7 +292,8 @@
     "noreply@ranking-deli.jp": "hide",
     "announce@portal.eltax.lta.go.jp": "info",
     "mail@contact.vpass.ne.jp": "action",
-    "newsletter@reply.agoda-emails.com": "hide"
+    "newsletter@reply.agoda-emails.com": "hide",
+    "noreply-merpay-partner@mercari.jp": "unclear"
   },
   "agniyoga_ad": {
     "yui.m@google.com": "unclear",
