@@ -282,7 +282,8 @@
     "info@freebieac.net": "hide",
     "ads-noreply@google.com": "hide",
     "service@ac.rakuten-bank.co.jp": "action",
-    "sc-noreply@google.com": "info"
+    "sc-noreply@google.com": "info",
+    "noreply@ranking-deli.jp": "hide"
   },
   "agniyoga_ad": {
     "yui.m@google.com": "unclear",
