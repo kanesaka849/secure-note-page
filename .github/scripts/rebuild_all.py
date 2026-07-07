@@ -345,13 +345,22 @@ def count_setsumeikai(school_data, year, month):
 def count_training_contracts(unified_mails, year, month):
     """クラウドサイン等で届く養成講座申込書の合意締結完了通知をKPI「養成講座」としてカウントする。
     統合メール一覧（AI仕分け済み）のtitle/sub/detailに「講座」を含み、
-    差出人ドメインがcloudsign.jpのものを対象とする。"""
+    差出人ドメインがcloudsign.jpのものを対象とする。
+    ⚠️過去バグ：クラウドサインは1件の契約につき複数ステージの通知（確認依頼・閲覧・
+    リマインド・締結完了等）を別メールで送り、どれも件名に書類名（「〇〇講座申込書」）を
+    含むため、「講座」だけの判定では1契約が2〜4回カウントされKPI履歴に永久に固定されていた。
+    完了通知の実際の件名＝「（書類名）」の合意締結が完了しました（ユーザー提供 2026-07-07）
+    に限定してカウントする。"""
     results = []
     for m in unified_mails:
         if m.get('domain') != 'cloudsign.jp':
             continue
         text = f"{m.get('title','')} {m.get('sub','')} {m.get('detail','')}"
         if '講座' not in text:
+            continue
+        # 締結完了ステージの通知のみカウント（titleはAI要約や30文字切詰めで語尾が
+        # 欠けることがあるため、本文(detail)まで含めたtext全体で判定する）
+        if '合意締結が完了' not in text:
             continue
         if not is_this_month(m.get('date', ''), year, month):
             continue
