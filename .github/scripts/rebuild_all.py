@@ -1094,19 +1094,32 @@ const GH_SENDER_RULES='sender_rules.json';
 async function ghGetSenderRules(){try{const r=await fetch(`https://api.github.com/repos/${GH_REPO}/contents/${GH_SENDER_RULES}`,{headers:{'Authorization':`token ${GH_TOKEN}`,'Accept':'application/vnd.github.v3+json'}});if(!r.ok)return{rules:{},sha:null};const d=await r.json();return{rules:JSON.parse(decodeURIComponent(escape(atob(d.content.replace(/\\n/g,''))))),sha:d.sha};}catch(e){return{rules:{},sha:null};}}
 async function ghPutSenderRules(rules,sha){try{const b=btoa(unescape(encodeURIComponent(JSON.stringify(rules))));const body={message:'update sender rules (manual)',content:b};if(sha)body.sha=sha;const r=await fetch(`https://api.github.com/repos/${GH_REPO}/contents/${GH_SENDER_RULES}`,{method:'PUT',headers:{'Authorization':`token ${GH_TOKEN}`,'Content-Type':'application/json','Accept':'application/vnd.github.v3+json'},body:JSON.stringify(body)});return r.status===200||r.status===201;}catch(e){return false;}}
 // 送信元ルールの更新は直列キュー＋リトライで行う（✕/△の連打で古いshaのPUTが409になり
-// ルールが黙って消える競合を防ぐ。失敗が続いた場合のみ警告を出す）
+// ルールが黙って消える競合を防ぐ）。
+// ⚠️過去バグ（ユーザー報告 2026-07-08「保存に失敗のalertがめちゃくちゃ出る」）：
+// リトライが3回×700ms固定＝約2秒しか粘らず、reflect-mail（15分定期＋デバッグ時の頻繁な
+// 実行）がsender_rules.jsonをコミットする瞬間に✕/△を押すと409が続いて全リトライ失敗→
+// 毎回alertが出ていた。対策＝①指数バックオフで最大30秒超まで粘る②失敗してもalertで
+// 作業を止めず、mutateを貯めて自動再送（ローカルのブロックリストには即反映済みなので
+// 実害は「サーバー反映が数十秒遅れる」だけ）。mutateは冪等（'hide'代入等）なので重複適用可。
 let _srQueue=Promise.resolve();
-function updateSenderRules(mutate){_srQueue=_srQueue.then(function(){return _updateSenderRulesOnce(mutate,3);});return _srQueue;}
+let _srPending=[];      // 保存に失敗したmutate（貯めて自動再送）
+let _srRetryTimer=null;
+function updateSenderRules(mutate){_srQueue=_srQueue.then(function(){return _updateSenderRulesOnce(mutate,6);});return _srQueue;}
 async function _updateSenderRulesOnce(mutate,tries){
+  const all=_srPending.concat(mutate?[mutate]:[]);
+  if(!all.length)return true;
   for(let i=0;i<tries;i++){
     const r=await ghGetSenderRules();
     const rules=r.rules||{};
-    mutate(rules);
+    all.forEach(function(m){try{m(rules);}catch(e){}});
     const ok=await ghPutSenderRules(rules,r.sha);
-    if(ok)return true;
-    await new Promise(function(res){setTimeout(res,700);});
+    if(ok){_srPending=[];return true;}
+    await new Promise(function(res){setTimeout(res,Math.min(500*Math.pow(2,i),8000));});
   }
-  alert('送信元ルールの保存に失敗しました（通信エラー）。時間をおいてもう一度お試しください');
+  // まだ失敗：ローカルには反映済み。mutateを貯めて15秒後に自動再送する（alertは出さない）
+  _srPending=all;
+  console.warn('送信元ルールのサーバー保存を後で自動再試行します（ローカルには反映済み）');
+  if(!_srRetryTimer){_srRetryTimer=setTimeout(function(){_srRetryTimer=null;if(_srPending.length)updateSenderRules(null);},15000);}
   return false;
 }
 // 🤖AIアドバイス依頼：ci_trigger/advice_requests.jsonに依頼を追記コミット→push起動のreflect-mailが
