@@ -1394,13 +1394,28 @@ const XT_KEY='ks_extra_tasks_v1';
 function _gxt(){try{return JSON.parse(localStorage.getItem(XT_KEY)||'[]');}catch{return[];}}
 function _sxt(list){localStorage.setItem(XT_KEY,JSON.stringify(list));}
 // 追加タスクの端末間共有：GitHubのextra_tasks.jsonに同期（スマホ/PCで同じタスク一覧になる）。
-// detail（メール本文）は公開リポジトリに置かないため同期対象外＝端末内のみ（他端末では画面上のメールから取得）。
+// ⚠️過去バグ（ユーザー報告 2026-07-08）：detail（メール本文）は公開リポジトリに平文を
+// 置けないため同期対象外＝追加した端末のlocalStorageのみに保存していた。その結果、
+// 別端末で開くと実メール要素へのフォールバック頼みになり、メールが取得窓から消えると
+// タスクの本文が見られなくなっていた。対策＝ファイル全体をAES-GCM（ページ復号と同じ
+// UID:PWからPBKDF2で導出）で暗号化し、detailも同期に含める。PWが取れない環境では
+// 従来どおりdetailを除いた平文で保存する（平文detailは絶対に公開リポジトリへ置かない）。
 // 削除は墓標(deleted)方式・更新はts(最新優先)でマージ＝done_stateと同じ設計原則。
 const GH_XT='extra_tasks.json';
+function _xtPw(){const u=localStorage.getItem('ks_uid')||sessionStorage.getItem('ks_uid')||'';const p=localStorage.getItem('ks_pw')||sessionStorage.getItem('ks_pw')||'';return(u&&p)?u+':'+p:null;}
+function _b64e(buf){let s='';const b=new Uint8Array(buf);for(let i=0;i<b.length;i++)s+=String.fromCharCode(b[i]);return btoa(s);}
+function _b64d(str){const s=atob(str);const b=new Uint8Array(s.length);for(let i=0;i<s.length;i++)b[i]=s.charCodeAt(i);return b;}
+async function _xtKey(salt){const pw=_xtPw();if(!pw)return null;const km=await crypto.subtle.importKey('raw',new TextEncoder().encode(pw),'PBKDF2',false,['deriveKey']);return crypto.subtle.deriveKey({name:'PBKDF2',salt:salt,iterations:100000,hash:'SHA-256'},km,{name:'AES-GCM',length:256},false,['encrypt','decrypt']);}
+async function _xtEncrypt(list){const salt=crypto.getRandomValues(new Uint8Array(16)),iv=crypto.getRandomValues(new Uint8Array(12));const key=await _xtKey(salt);if(!key)return null;const ct=await crypto.subtle.encrypt({name:'AES-GCM',iv:iv},key,new TextEncoder().encode(JSON.stringify(list)));return JSON.stringify({s:_b64e(salt),i:_b64e(iv),d:_b64e(ct)});}
+async function _xtDecrypt(text){const obj=JSON.parse(text);if(Array.isArray(obj))return obj;const key=await _xtKey(_b64d(obj.s));if(!key)throw new Error('xt-locked');const pt=await crypto.subtle.decrypt({name:'AES-GCM',iv:_b64d(obj.i)},key,_b64d(obj.d));return JSON.parse(new TextDecoder().decode(pt));}
 function mergeXt(a,b){const m={};[...a,...b].forEach(function(t){const c=m[t.id];const ts=t.ts||t.addedAt||0;const cts=c?(c.ts||c.addedAt||0):-1;if(!c||ts>cts){const keep=Object.assign({},t);if(c&&c.detail&&!keep.detail)keep.detail=c.detail;m[t.id]=keep;}else if(t.detail&&!c.detail){c.detail=t.detail;}});return Object.values(m);}
-async function ghGetXt(){try{const r=await fetch(`https://api.github.com/repos/${GH_REPO}/contents/${GH_XT}`,{headers:{'Authorization':`token ${GH_TOKEN}`,'Accept':'application/vnd.github.v3+json'}});if(!r.ok)return{list:[],sha:null};const d=await r.json();const l=JSON.parse(decodeURIComponent(escape(atob(d.content.replace(/\\n/g,'')))));return{list:Array.isArray(l)?l:[],sha:d.sha};}catch(e){return{list:[],sha:null};}}
-async function ghPutXt(list,sha){for(let i=0;i<3;i++){try{const pub=list.map(function(t){return{id:t.id,name:t.name,source:t.source,urgency:t.urgency||'',mailId:t.mailId,addedAt:t.addedAt,ts:t.ts||t.addedAt,deleted:!!t.deleted};});const b=btoa(unescape(encodeURIComponent(JSON.stringify(pub))));const body={message:'sync tasks',content:b};if(sha)body.sha=sha;const r=await fetch(`https://api.github.com/repos/${GH_REPO}/contents/${GH_XT}`,{method:'PUT',headers:{'Authorization':`token ${GH_TOKEN}`,'Content-Type':'application/json','Accept':'application/vnd.github.v3+json'},body:JSON.stringify(body)});if(r.status===200||r.status===201)return;}catch(e){}const g=await ghGetXt();list=mergeXt(list,g.list);sha=g.sha;_sxt(list);}}
-function syncXt(){if(!GH_TOKEN)return;ghGetXt().then(function(r){const merged=mergeXt(_gxt(),r.list);_sxt(merged);renderExtraTasks();renderTrash();ghPutXt(merged,r.sha);});}  // renderTrash: 他端末で削除された分（同期タンブストーン）もゴミ箱に反映する
+async function ghGetXt(){try{const r=await fetch(`https://api.github.com/repos/${GH_REPO}/contents/${GH_XT}`,{headers:{'Authorization':`token ${GH_TOKEN}`,'Accept':'application/vnd.github.v3+json'}});if(!r.ok)return{list:[],sha:null};const d=await r.json();const text=decodeURIComponent(escape(atob(d.content.replace(/\\n/g,''))));let l=[];try{l=await _xtDecrypt(text);}catch(e){
+  // 復号できない（PW未取得 or 破損）場合はlocked扱い＝この端末からの上書きを禁止する
+  // （空リストとして扱うと、同期済みタスクを平文の空データで消してしまうため）
+  return{list:[],sha:d.sha,locked:true};
+}return{list:Array.isArray(l)?l:[],sha:d.sha};}catch(e){return{list:[],sha:null};}}
+async function ghPutXt(list,sha){for(let i=0;i<3;i++){try{const pub=list.map(function(t){return{id:t.id,name:t.name,source:t.source,urgency:t.urgency||'',mailId:t.mailId,detail:(t.detail||'').slice(0,1500),addedAt:t.addedAt,ts:t.ts||t.addedAt,deleted:!!t.deleted};});let payload=await _xtEncrypt(pub);if(payload===null){payload=JSON.stringify(pub.map(function(t){const c=Object.assign({},t);delete c.detail;return c;}));}const b=btoa(unescape(encodeURIComponent(payload)));const body={message:'sync tasks',content:b};if(sha)body.sha=sha;const r=await fetch(`https://api.github.com/repos/${GH_REPO}/contents/${GH_XT}`,{method:'PUT',headers:{'Authorization':`token ${GH_TOKEN}`,'Content-Type':'application/json','Accept':'application/vnd.github.v3+json'},body:JSON.stringify(body)});if(r.status===200||r.status===201)return;}catch(e){}const g=await ghGetXt();if(g.locked)return;list=mergeXt(list,g.list);sha=g.sha;_sxt(list);}}
+function syncXt(){if(!GH_TOKEN)return;ghGetXt().then(function(r){if(r.locked)return;const merged=mergeXt(_gxt(),r.list);_sxt(merged);renderExtraTasks();renderTrash();ghPutXt(merged,r.sha);});}  // renderTrash: 他端末で削除された分（同期タンブストーン）もゴミ箱に反映する。locked=復号不能時は読み書きしない
 const URGENCY_ICON={urgent:'🔴',soon:'🟡'};
 const URGENCY_ORDER={urgent:0,soon:1,'':2};
 function addMailToTaskList(mailId,title,btn){
@@ -1418,7 +1433,13 @@ function toggleTaskDetail(taskId){
   if(el.style.display==='none'){
     const t=_gxt().find(function(x){return x.id===taskId;});
     let detail=(t&&t.detail)||'';
-    if(!detail&&t&&t.mailId){const src=document.getElementById(t.mailId);if(src){const f=src.querySelector('.detail-from'),b=src.querySelector('.detail-body');detail=((f?f.textContent:'')+String.fromCharCode(10,10)+(b?b.textContent:'')).trim();}}
+    if(!detail&&t&&t.mailId){
+      const src=document.getElementById(t.mailId);
+      if(src){const f=src.querySelector('.detail-from'),b=src.querySelector('.detail-body');detail=((f?f.textContent:'')+String.fromCharCode(10,10)+(b?b.textContent:'')).trim();}
+      // 自己修復：本文未保存の古いタスクは、メールが画面にあるうちに本文をタスクへ保存して
+      // 端末間同期する（メールが取得窓から消えた後も本文が見られるように）
+      if(detail){const xl=_gxt();const rec=xl.find(function(x){return x.id===taskId;});if(rec&&!rec.detail){rec.detail=detail;rec.ts=Date.now();_sxt(xl);syncXt();}}
+    }
     el.textContent=detail||'（メール本文が見つかりませんでした。メール一覧から消えた古いメールの可能性があります）';
     el.style.display='block';
   }else{el.style.display='none';}
