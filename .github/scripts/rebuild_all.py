@@ -328,17 +328,32 @@ def count_trials(trial_data, year, month):
     return results
 
 def count_setsumeikai(school_data, year, month):
+    # ⚠️ 満員マーカー・内部テスト予約は実来場者でないため除外する（ユーザー指示 2026-07-08）。
+    # 体験KPI(count_trials)と同じ方針＝スタジオが満席管理用に入れる「満員」ダミー予約や
+    # 「テスト」「金坂」を含む社内テスト予約はカウントしない。
+    # 説明会の氏名は件名「養成講座説明会:顧客名 様 …」に入る（本文【氏名】がある場合も見る）。
+    dummy_names = {'満員', 'テスト'}
+    test_keywords = ('テスト', '金坂')
     results = []
     for item in school_data:
         if '説明会予約受付:' not in item.get('from', ''):
             continue
         if not is_this_month(item['date'], year, month):
             continue
+        subject = item.get('subject', '')
+        body = item.get('body', '')
+        name_m = re.search(r'説明会[：:]\s*(.+?)\s*様', subject) or re.search(r'【氏名】(.+)', body)
+        name = name_m.group(1).strip() if name_m else ''
+        # 満員は件名・本文のどこに現れても除外（ダミー予約の入り方が一定でないため）
+        if '満員' in subject or '満員' in body:
+            continue
+        if name in dummy_names or any(k in name for k in test_keywords):
+            continue
         results.append({
-            'subject': item['subject'],
+            'subject': subject,
             'date':    item.get('date', ''),
             'from':    item.get('from', ''),
-            'body':    item.get('body', ''),
+            'body':    body,
         })
     return results
 
