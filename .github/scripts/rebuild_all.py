@@ -712,6 +712,12 @@ def generate_unified_mail_section(mails, filter_categories=None):
                      f'onclick="event.stopPropagation();justHideMail(\'{mid}\')">隠す</button>')
         recommend = he(m.get('recommend', ''))
         recommend_html = f'<div class="mail-recommend">💡 {recommend}</div>' if recommend else ''
+        meeting_url = m.get('meeting_url', '')
+        _mtg_svc = ("Zoom" if "zoom" in meeting_url.lower() else "Google Meet" if "meet.google" in meeting_url
+                    else "Teams" if "teams" in meeting_url else "会議リンク")
+        meeting_html = (f'<div class="mail-meeting"><a href="{he_attr(meeting_url)}" target="_blank" rel="noopener" '
+                        f'onclick="event.stopPropagation();">🎥 Web会議に参加（{_mtg_svc}）</a></div>'
+                        if meeting_url else '')
         adv = ADVICE_STORE.get(mid)
         advice_btn = ('' if adv and not adv.get('error') else
                       f'<button class="archive-btn btn-advice" title="AIがWeb調査してスパムか本物か・どう対応すべきかをアドバイスします（依頼後、次のメール反映時に生成）" '
@@ -743,6 +749,7 @@ def generate_unified_mail_section(mails, filter_categories=None):
           </div>
           <div class="mail-to">{meta}</div>
           <div class="mail-sub">{he(m.get('sub',''))}</div>
+          {meeting_html}
           {recommend_html}
           {advice_html}
           <div class="mail-detail"><button class="copy-btn" title="メール内容をコピー" onclick="event.stopPropagation();copyMailText(this)" data-copy="{copy_text}">📋 コピー</button><div class="detail-from">{he(m.get('from_info',''))}</div><div class="detail-body">{he(m.get('detail',''))}</div></div>
@@ -912,6 +919,9 @@ DASHBOARD_TEMPLATE = """<!DOCTYPE html>
   .archive-btn.btn-advice:hover { background: #6366f1; color: white; border-color: #6366f1; }
   .mail-advice { font-size: 11px; line-height: 1.8; margin-top: 6px; padding: 8px 10px; border-radius: 6px; background: #eef2ff; border: 1px solid #c7d2fe; color: #3730a3; }
   .mail-advice .advice-evidence { color: #6366f1; font-size: 10px; }
+  .mail-meeting { margin-top: 6px; }
+  .mail-meeting a { display: inline-block; font-size: 12px; font-weight: bold; background: #2563eb; color: #fff; padding: 5px 12px; border-radius: 6px; text-decoration: none; }
+  .mail-meeting a:hover { background: #1d4ed8; }
   .mail-header { display: flex; flex-direction: column; align-items: stretch; gap: 3px; margin-bottom: 3px; cursor: pointer; }
   .mail-btns { display: flex; justify-content: flex-end; gap: 6px; flex-wrap: wrap; }
   .mail-header:hover .mail-title { color: var(--blue); }
@@ -1690,6 +1700,14 @@ function fallbackCopy(text,done){
         </div>
         <div class="task-card extra urgency-soon" id="a-11">
           <div class="task-header"><div class="task-title">🟡 OneDrive 解約（GDrive移行完了後）</div><button class="archive-btn btn-check" title="完了" onclick="event.stopPropagation();archiveItem('a-11')">✓</button></div>
+        </div>
+        <div class="task-card extra urgency-urgent" id="a-12">
+          <div class="task-header"><div class="task-title">🔴 🗑️ 三茶で粗大ごみ回収 → 美浜リサイクルセンターへ搬入</div><button class="archive-btn btn-check" title="完了" onclick="event.stopPropagation();archiveItem('a-12')">✓</button></div>
+          <div class="task-next">今日</div>
+        </div>
+        <div class="task-card extra urgency-urgent" id="a-13">
+          <div class="task-header"><div class="task-title">🔴 📞 幕張総合高校に電話</div><button class="archive-btn btn-check" title="完了" onclick="event.stopPropagation();archiveItem('a-13')">✓</button></div>
+          <div class="task-next">今日</div>
         </div>
         <div class="task-card active" id="t-5">
           <div class="task-header" onclick="toggleDetail('t-5')">
