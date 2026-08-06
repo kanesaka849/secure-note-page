@@ -1727,11 +1727,11 @@ function fallbackCopy(text,done){
 
 📊 情報まとめ（Google Sheets）：<a href="https://docs.google.com/spreadsheets/d/1CLkgCwaM7RXm5hM268GfyPvOdnyKCv4YTdaYvLmp_TA/edit" target="_blank" rel="noopener">まとめシートを開く</a>
 
-8/22〜  出願登録開始（〜9/3）
-9/3    出願書類 郵送締切
-9月下旬  1次結果発表
-10月    2次面接
-11月上旬  合格発表</div>
+8/6〜  出願登録開始（〜9/2 9:00）
+9/1〜9/3  出願書類 郵送（必着）
+10/1   1次結果発表
+10/7〜19  2次面接
+11/2   合格発表</div>
         </div>
         <div class="task-card paused" id="t-1">
           <div class="task-header" onclick="toggleDetail('t-1')">
@@ -1832,19 +1832,19 @@ function fallbackCopy(text,done){
     <div class="card-title">📍 ACトラック（総合型選抜）</div>
     <div class="countdown-bar">
       <div class="countdown-item urgent">
-        <div class="days">50</div><div class="label">出願登録開始</div><div class="date">8/22（土）</div>
+        <div class="days">10</div><div class="label">出願登録開始</div><div class="date">8/6（木）</div>
       </div>
       <div class="countdown-item urgent">
-        <div class="days">62</div><div class="label">出願郵送締切</div><div class="date">9/3（水）</div>
+        <div class="days">38</div><div class="label">出願郵送締切</div><div class="date">9/3（木）</div>
       </div>
       <div class="countdown-item">
-        <div class="days">〜</div><div class="label">1次結果</div><div class="date">9月下旬</div>
+        <div class="days">66</div><div class="label">1次結果</div><div class="date">10/1（木）</div>
       </div>
       <div class="countdown-item">
-        <div class="days">〜</div><div class="label">2次面接</div><div class="date">10月</div>
+        <div class="days">〜</div><div class="label">2次面接</div><div class="date">10/7〜19</div>
       </div>
       <div class="countdown-item">
-        <div class="days">〜</div><div class="label">合格発表</div><div class="date">11月上旬</div>
+        <div class="days">98</div><div class="label">合格発表</div><div class="date">11/2（月）</div>
       </div>
     </div>
     <div style="margin-top:10px;font-size:12px;color:var(--sub);">
