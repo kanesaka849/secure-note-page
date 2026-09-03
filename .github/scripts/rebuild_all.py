@@ -1714,23 +1714,22 @@ function fallbackCopy(text,done){
             <div class="task-title"><span class="badge badge-green">▶</span> #5 大学受験サポート</div>
             <button class="archive-btn" onclick="event.stopPropagation();archiveItem('t-5')">✓</button>
           </div>
-          <div class="task-next"><strong>OC予約（7/25・早急）</strong> ／ 自己推薦書本人記入 ／ 実技②実測（7月中）</div>
+          <div class="task-next"><strong>✅出願完了（9/2配達済）</strong> ／ 9/11受験番号通知 → 10/1 1次結果 → 面接対策＋6.2秒の壁検証（10/1〜19）</div>
           <div class="task-detail">【筑波大 体育学群 体育専門学群 AC トラック（総合型選抜）】
 
 息子（幕張総合高校3年）の大学受験サポート。
-三者面談で先生の全面協力確定。
+✅ 9/1 発送（簡易書留＋速達）→ 9/2 8:33 配達完了確認。志願票受付番号 233816250346。
 
-① OC予約 → 7/25 OCANs サイトから（早急！）
-② 自己推薦書：本人が競技記録表から実数値を記入
-③ 実技②：陸上部で実測してもらう（7月中）
-④ 受験相談メール：本人が担当先生に送る
+9月＝共テ勉強優先＋1500m対策で陸上部練習に参加中。
+10/1（1次結果）〜10/19（面接）の18日間：
+① 面接対策：自己推薦書の5分要約（最優先）／想定問答15問／模擬面接2回以上
+② 「6.2秒の壁」n=1検証を仕込む：仮説「接地の質が律速」を50mタイム＋歩数の動画記録と陸上部指導者の動作診断メモで検証（週1・A4メモ1枚）→ 面接の「出願後の進捗」ネタ＋木越研究への接続
 
 📊 情報まとめ（Google Sheets）：<a href="https://docs.google.com/spreadsheets/d/1CLkgCwaM7RXm5hM268GfyPvOdnyKCv4YTdaYvLmp_TA/edit" target="_blank" rel="noopener">まとめシートを開く</a>
 
-8/6〜  出願登録開始（〜9/2 9:00）
-9/1〜9/3  出願書類 郵送（必着）
-10/1   1次結果発表
-10/7〜19  2次面接
+9/11   受験番号通知（目途）
+10/1   1次結果発表（10:00）
+10/19  2次面接（月）
 11/2   合格発表</div>
         </div>
         <div class="task-card paused" id="t-1">
@@ -1831,24 +1830,25 @@ function fallbackCopy(text,done){
   <div class="card full">
     <div class="card-title">📍 ACトラック（総合型選抜）</div>
     <div class="countdown-bar">
+      <div class="countdown-item">
+        <div class="days">✅</div><div class="label">出願完了</div><div class="date">9/2 配達済</div>
+      </div>
+      <div class="countdown-item">
+        <div class="days">✉️</div><div class="label">受験番号通知</div><div class="date">9/11 目途</div>
+      </div>
       <div class="countdown-item urgent">
-        <div class="days">10</div><div class="label">出願登録開始</div><div class="date">8/6（木）</div>
+        <div class="days">10:00</div><div class="label">1次結果</div><div class="date">10/1（木）</div>
       </div>
       <div class="countdown-item urgent">
-        <div class="days">38</div><div class="label">出願郵送締切</div><div class="date">9/3（木）</div>
+        <div class="days">本番</div><div class="label">2次面接</div><div class="date">10/19（月）</div>
       </div>
       <div class="countdown-item">
-        <div class="days">66</div><div class="label">1次結果</div><div class="date">10/1（木）</div>
-      </div>
-      <div class="countdown-item">
-        <div class="days">〜</div><div class="label">2次面接</div><div class="date">10/7〜19</div>
-      </div>
-      <div class="countdown-item">
-        <div class="days">98</div><div class="label">合格発表</div><div class="date">11/2（月）</div>
+        <div class="days">🎯</div><div class="label">合格発表</div><div class="date">11/2（月）</div>
       </div>
     </div>
     <div style="margin-top:10px;font-size:12px;color:var(--sub);">
-      ▶ 次にやること：①OC予約（7/25・要早急） ②自己推薦書本人記入（実数値） ③実技②陸上部実測（7月中） ④受験相談メール（本人）
+      ▶ 9月＝共テ勉強優先。面接対策は <strong>10/1（1次結果）〜10/19 の18日間</strong>で実施：①自己推薦書の<strong>5分要約</strong>（最優先・反復練習） ②想定問答15問（科学的根拠／失敗時の修正／なぜAC か 等） ③模擬面接2回以上（紙の書類一式持参）<br>
+      ▶ 同期間に仕込み：<strong>「6.2秒の壁」n=1検証</strong>＝1500m対策の陸上部練習を活用し、仮説「壁は接地の質（原則1・2）が律速」を 50mタイム＋歩数の動画記録（歩幅×ピッチ分解）＋<strong>陸上部指導者の動作診断メモ</strong>で検証（週1・A4メモ1枚）。面接の「出願後の進捗は？」に対し「14名の検証失敗→n=1＋専門家の外部視点で再検証中→木越研究に直結」の一本線を作る
     </div>
   </div>
 
