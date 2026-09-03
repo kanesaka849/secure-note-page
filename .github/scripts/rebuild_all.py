@@ -1732,6 +1732,25 @@ function fallbackCopy(text,done){
 10/19  2次面接（月）
 11/2   合格発表</div>
         </div>
+        <div class="task-card active" id="t-8">
+          <div class="task-header" onclick="toggleDetail('t-8')">
+            <div class="task-title"><span class="badge badge-green">🆕</span> #8 JASSO予約奨学金（予備回）</div>
+            <button class="archive-btn" onclick="event.stopPropagation();archiveItem('t-8')">✓</button>
+          </div>
+          <div class="task-next">🔴 <strong>〜9/30 悠生が担任から申込封筒を受領</strong>（今週中推奨）→ スカラネット入力 10/2〜10/16</div>
+          <div class="task-detail">【大学進学向け・申込決定 2026-09-03】
+
+学校案内＝予約奨学金の予備回（R8年7月までに未申込の人が対象＝悠生該当）。
+※申込後に辞退・取消した人は予備回に申込不可。質問は生徒経由で学校担当へ。
+
+① 悠生が担任から封筒一式を受領（配布 9/1〜9/30・早めに）
+② 中身確認：給付型/貸与型の選択・家計情報・マイナンバー書類の要否
+③ スカラネット入力（10/2〜10/16）
+④ 郵送提出があれば封筒の指示に従う
+
+⚠️ 入力期間が AC面接対策（10/1〜19）と重複 → 本人作業は最小限に、親主導で段取り。
+AC合格でも予約は無駄にならない（進学届で大学指定する方式）。</div>
+        </div>
         <div class="task-card paused" id="t-1">
           <div class="task-header" onclick="toggleDetail('t-1')">
             <div class="task-title"><span class="badge badge-gray">⏸</span> #1 総会準備</div>
